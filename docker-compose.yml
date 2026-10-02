@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      RAG_ENV: development
+      RAG_LOG_LEVEL: INFO
+    restart: unless-stopped

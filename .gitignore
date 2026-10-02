@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage.xml
+.coverage
+htmlcov/
+dist/
+build/
+data/raw/
+data/processed/
+logs/
+
+# Local agent state
+__agent__/
+
+# Local editor files
+.idea/
+.vscode/
+*.swp
