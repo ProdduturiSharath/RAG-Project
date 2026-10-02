@@ -36,7 +36,7 @@ class PyMuPDFParser:
         if not source.path:
             raise ValueError("PyMuPDFParser requires SourceLocation.path")
         try:
-            import fitz  # type: ignore[import-not-found]
+            import fitz
         except ImportError as exc:
             raise RuntimeError(
                 "PDF ingestion requires the optional 'documents' dependency: pymupdf"

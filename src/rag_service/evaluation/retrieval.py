@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 
 from rag_service.retrieval import HybridRetriever, RetrievalFilters
@@ -11,7 +11,7 @@ from rag_service.retrieval import HybridRetriever, RetrievalFilters
 @dataclass(frozen=True, slots=True)
 class EvaluationCase:
     query: str
-    relevant_chunk_ids: frozenset[str] = frozenset()
+    relevant_chunk_ids: Collection[str] = ()
     expected_abstain: bool = False
     filters: RetrievalFilters | None = None
 

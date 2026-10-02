@@ -65,7 +65,7 @@ class OpenAICompatibleGenerator:
             )
             return
         try:
-            import httpx  # type: ignore[import-not-found]
+            import httpx
         except ImportError as exc:
             raise RuntimeError("LLM streaming requires the optional 'llm' dependency") from exc
 

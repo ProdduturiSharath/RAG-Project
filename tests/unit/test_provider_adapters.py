@@ -1,4 +1,5 @@
 import unittest
+from typing import Any
 
 from rag_service.domain import AccessPolicy, Chunk, SourceLocation
 from rag_service.retrieval import PineconeHybridIndex, RetrievalFilters
@@ -6,13 +7,13 @@ from rag_service.retrieval import PineconeHybridIndex, RetrievalFilters
 
 class FakePineconeIndex:
     def __init__(self) -> None:
-        self.upsert_call = None
-        self.query_call = None
+        self.upsert_call: dict[str, Any] | None = None
+        self.query_call: dict[str, Any] | None = None
 
-    def upsert(self, **kwargs):
+    def upsert(self, **kwargs: Any) -> None:
         self.upsert_call = kwargs
 
-    def query(self, **kwargs):
+    def query(self, **kwargs: Any) -> dict[str, Any]:
         self.query_call = kwargs
         return {
             "matches": [
@@ -62,15 +63,21 @@ class ProviderAdapterTests(unittest.TestCase):
             filters=RetrievalFilters(principal="alice"),
         )
 
-        self.assertEqual(client.upsert_call["namespace"], "test")
-        vector = client.upsert_call["vectors"][0]
+        self.assertIsNotNone(client.upsert_call)
+        self.assertIsNotNone(client.query_call)
+        upsert_call = client.upsert_call
+        query_call = client.query_call
+        assert upsert_call is not None
+        assert query_call is not None
+        self.assertEqual(upsert_call["namespace"], "test")
+        vector = upsert_call["vectors"][0]
         self.assertEqual(
             vector["sparse_values"]["indices"],
             sorted(vector["sparse_values"]["indices"]),
         )
-        self.assertAlmostEqual(client.query_call["vector"][0], 0.7)
-        self.assertAlmostEqual(client.query_call["sparse_vector"]["values"][0], 0.6)
-        self.assertEqual(client.query_call["filter"]["$or"][1]["acl_principals"]["$in"], ["alice"])
+        self.assertAlmostEqual(query_call["vector"][0], 0.7)
+        self.assertAlmostEqual(query_call["sparse_vector"]["values"][0], 0.6)
+        self.assertEqual(query_call["filter"]["$or"][1]["acl_principals"]["$in"], ["alice"])
         self.assertEqual(results[0].chunk.document_id, "manual")
         self.assertEqual(results[0].chunk.page_number, 4)
 

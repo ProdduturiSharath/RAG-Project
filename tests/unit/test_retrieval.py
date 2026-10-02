@@ -60,6 +60,58 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("restricted", {match.chunk.document_id for match in hidden})
         self.assertIn("restricted", {match.chunk.document_id for match in visible})
 
+    async def test_acl_filtering_precedes_candidate_limit(self) -> None:
+        application = build_application()
+        application.ingest(
+            "restricted",
+            [DocumentSection(text="The confidential launch date is November 15.")],
+            "v1",
+            access_policy=AccessPolicy(principals=("alice",)),
+        )
+        application.ingest(
+            "public",
+            [DocumentSection(text="The public launch date is published in the guide.")],
+            "v1",
+        )
+
+        matches = await application.retriever.retrieve(
+            "confidential launch date",
+            top_k=1,
+            candidate_k=1,
+            alpha=0.5,
+            filters=RetrievalFilters(principal="bob"),
+        )
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].chunk.document_id, "public")
+
+    async def test_group_acl_is_checked_for_denied_and_allowed_groups(self) -> None:
+        application = build_application()
+        application.ingest(
+            "operations",
+            [DocumentSection(text="The operations group runbook contains the launch plan.")],
+            "v1",
+            access_policy=AccessPolicy(groups=("operations",)),
+        )
+
+        denied = await application.retriever.retrieve(
+            "launch plan",
+            top_k=1,
+            candidate_k=1,
+            alpha=0.5,
+            filters=RetrievalFilters(principal="bob", groups=("sales",)),
+        )
+        allowed = await application.retriever.retrieve(
+            "launch plan",
+            top_k=1,
+            candidate_k=1,
+            alpha=0.5,
+            filters=RetrievalFilters(principal="bob", groups=("operations",)),
+        )
+
+        self.assertEqual(denied, ())
+        self.assertEqual([match.chunk.document_id for match in allowed], ["operations"])
+
 
 if __name__ == "__main__":
     unittest.main()
