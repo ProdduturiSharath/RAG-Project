@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 
 def _copy_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -164,6 +164,12 @@ class DocumentVersion:
         return self.version
 
     @property
+    def product_version(self) -> str:
+        """The searchable product scope represented by ``version``."""
+
+        return self.version
+
+    @property
     def idempotency_key(self) -> str:
         return f"{self.document_id}:{self.version}:{self.content_hash}"
 
@@ -189,12 +195,16 @@ class DocumentSection:
     section_id: str | None = None
     parent_section_id: str | None = None
     source: SourceLocation | None = None
+    lineage_key: str | None = None
+    kind: Literal["text", "table", "code"] = "text"
 
     def __post_init__(self) -> None:
         if self.level < 0:
             raise ValueError("section level cannot be negative")
         if self.page_number is not None and self.page_number < 1:
             raise ValueError("page_number must be positive when supplied")
+        if self.kind not in {"text", "table", "code"}:
+            raise ValueError("section kind must be text, table, or code")
         object.__setattr__(self, "section_path", tuple(self.section_path))
         object.__setattr__(self, "page_metadata", _copy_metadata(self.page_metadata))
         object.__setattr__(self, "metadata", _copy_metadata(self.metadata))
@@ -233,6 +243,11 @@ class Chunk:
     source: SourceLocation | None = None
     section_id: str | None = None
     access_policy: AccessPolicy | None = None
+    kind: Literal["text", "table", "code"] = "text"
+    content_hash: str | None = None
+    lineage_key: str | None = None
+    revision: int = 1
+    parent_text: str | None = None
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
@@ -245,6 +260,8 @@ class Chunk:
             raise ValueError("ordinal cannot be negative")
         if self.page_number is not None and self.page_number < 1:
             raise ValueError("page_number must be positive when supplied")
+        if self.kind not in {"text", "table", "code"}:
+            raise ValueError("chunk kind must be text, table, or code")
         object.__setattr__(self, "section_path", tuple(self.section_path))
         object.__setattr__(self, "child_ids", tuple(self.child_ids))
         object.__setattr__(self, "page_metadata", _copy_metadata(self.page_metadata))
@@ -266,6 +283,12 @@ class Chunk:
     def children(self) -> tuple[str, ...]:
         return self.child_ids
 
+    @property
+    def product_version(self) -> str:
+        """The searchable product scope represented by ``version``."""
+
+        return self.version
+
 
 @dataclass(frozen=True, slots=True)
 class IngestionResult:
@@ -282,6 +305,7 @@ class IngestionResult:
     errors: tuple[str, ...] = ()
     dense_vectors: tuple[tuple[float, ...], ...] = ()
     sparse_vectors: tuple[Mapping[str, float], ...] = ()
+    revision: int = 1
 
     def __post_init__(self) -> None:
         if not self.document_id.strip():
@@ -317,4 +341,10 @@ class IngestionResult:
 
     @property
     def version_id(self) -> str:
+        return self.version
+
+    @property
+    def product_version(self) -> str:
+        """The searchable product scope represented by ``version``."""
+
         return self.version

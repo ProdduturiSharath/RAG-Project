@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
-from rag_service.domain import Chunk
-
 from .models import RetrievalFilters, ScoredChunk
 
 
@@ -21,15 +19,6 @@ class SparseEncoder(Protocol):
 
 
 class VectorIndex(Protocol):
-    def upsert(
-        self,
-        chunks: Sequence[Chunk],
-        *,
-        dense_vectors: Sequence[Sequence[float]] = (),
-        sparse_vectors: Sequence[dict[str, float]] = (),
-    ) -> int:
-        """Insert or replace chunks and their vectors."""
-
     def search(
         self,
         dense_vector: Sequence[float],

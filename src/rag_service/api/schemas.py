@@ -52,6 +52,7 @@ class IngestDocumentResponse(BaseModel):
     ingestion_id: str | None
     chunk_count: int
     already_ingested: bool
+    revision: int = 1
 
 
 class QueryRequest(BaseModel):
@@ -62,6 +63,7 @@ class QueryRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list)
     principal: str | None = None
     groups: list[str] = Field(default_factory=list)
+    product_version: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -73,6 +75,7 @@ class CitationResponse(BaseModel):
     page_number: int | None = None
     section_path: list[str] = Field(default_factory=list)
     excerpt: str = ""
+    revision: int = 1
 
 
 class MatchResponse(BaseModel):
@@ -104,12 +107,25 @@ class HealthResponse(BaseModel):
     indexed_chunks: int
 
 
+class JobResponse(BaseModel):
+    id: str
+    kind: str
+    status: str
+    attempts: int
+    error: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+
+
 __all__ = [
     "AccessPolicyPayload",
     "CitationResponse",
     "HealthResponse",
     "IngestDocumentRequest",
     "IngestDocumentResponse",
+    "JobResponse",
     "MatchResponse",
     "QueryRequest",
     "QueryResponse",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +14,7 @@ from rag_service.application import RagApplication
 from rag_service.domain import AccessPolicy, DocumentIdentity, DocumentSection, SourceLocation
 from rag_service.retrieval import Citation, RetrievalFilters, ScoredChunk
 from rag_service.settings import Settings, load_settings
+from rag_service.storage import PostgresJobStore
 
 from .container import build_application
 from .schemas import (
@@ -21,6 +22,7 @@ from .schemas import (
     HealthResponse,
     IngestDocumentRequest,
     IngestDocumentResponse,
+    JobResponse,
     MatchResponse,
     QueryRequest,
     QueryResponse,
@@ -90,7 +92,47 @@ def create_app(
             ingestion_id=result.ingestion_id,
             chunk_count=result.chunk_count,
             already_ingested=result.already_ingested,
+            revision=result.revision,
         )
+
+    @app.delete("/v1/documents/{document_id}")
+    async def delete_document(
+        document_id: str, product_version: str | None = None
+    ) -> dict[str, Any]:
+        try:
+            deleted = await asyncio.to_thread(
+                application.delete_document, document_id, product_version
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return {"document_id": document_id, "product_version": product_version, "deleted": deleted}
+
+    @app.post("/v1/ingestion/jobs", response_model=JobResponse, status_code=202)
+    async def enqueue_ingestion(payload: IngestDocumentRequest) -> JobResponse:
+        if settings.storage_backend != "postgres":
+            raise HTTPException(
+                status_code=501, detail="async ingestion requires the Postgres backend"
+            )
+        job_store = PostgresJobStore(settings.database_url, settings.migrations_path)
+        body = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+        job_id = await asyncio.to_thread(job_store.enqueue, "ingest_document", body)
+        job = await asyncio.to_thread(job_store.get, job_id)
+        if job is None:
+            raise HTTPException(status_code=500, detail="job was not persisted")
+        return _job_response(job)
+
+    @app.get("/v1/ingestion/jobs/{job_id}", response_model=JobResponse)
+    async def get_ingestion_job(job_id: str) -> JobResponse:
+        if settings.storage_backend != "postgres":
+            raise HTTPException(
+                status_code=501, detail="async ingestion requires the Postgres backend"
+            )
+        job = await asyncio.to_thread(
+            PostgresJobStore(settings.database_url, settings.migrations_path).get, job_id
+        )
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return _job_response(job)
 
     @app.post("/v1/query", response_model=QueryResponse)
     async def query(payload: QueryRequest) -> QueryResponse:
@@ -205,6 +247,7 @@ def _filters_from_payload(payload: QueryRequest) -> RetrievalFilters:
         principal=payload.principal,
         groups=tuple(payload.groups),
         metadata=payload.metadata,
+        product_version=payload.product_version,
     )
 
 
@@ -217,6 +260,7 @@ def _citation_response(citation: Citation) -> CitationResponse:
         page_number=citation.page_number,
         section_path=list(citation.section_path),
         excerpt=citation.excerpt,
+        revision=citation.revision,
     )
 
 
@@ -246,6 +290,24 @@ def _match_response(match: ScoredChunk) -> MatchResponse:
 
 def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _job_response(job: Mapping[str, Any]) -> JobResponse:
+    return JobResponse(
+        id=str(job["id"]),
+        kind=str(job["kind"]),
+        status=str(job["status"]),
+        attempts=int(job["attempts"]),
+        error=job.get("error"),
+        result=job.get("result"),
+        created_at=_isoformat(job.get("created_at")),
+        started_at=_isoformat(job.get("started_at")),
+        finished_at=_isoformat(job.get("finished_at")),
+    )
+
+
+def _isoformat(value: Any) -> str | None:
+    return value.isoformat() if value is not None and hasattr(value, "isoformat") else value
 
 
 def run() -> None:
