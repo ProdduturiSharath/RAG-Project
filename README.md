@@ -34,7 +34,18 @@ interfaces testable before Pinecone and a hosted LLM are connected.
 
 ## Run locally
 
-Create a virtual environment, install the project, and start the API:
+On Ubuntu/WSL2, create a virtual environment, install the project, and start
+the API:
+
+```bash
+sudo apt install python3-venv  # once, if ensurepip is unavailable
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.lock
+uvicorn rag_service.api.app:app --reload
+```
+
+PowerShell remains supported on Windows:
 
 ```powershell
 py -m venv .venv
@@ -50,17 +61,17 @@ The service starts at <http://127.0.0.1:8000>. The Swagger UI is at
 
 Ingest a small document:
 
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/v1/documents `
-  -H "Content-Type: application/json" `
+```bash
+curl -X POST http://127.0.0.1:8000/v1/documents \
+  -H 'Content-Type: application/json' \
   -d '{"document_id":"ops-manual","version":"2026-01","source":{"uri":"ops-manual.pdf"},"sections":[{"heading":"Maintenance","level":1,"page_number":12,"text":"Replace filter SKU-994X every 12 months."}]}'
 ```
 
 Ask a question:
 
-```powershell
-curl.exe -X POST http://127.0.0.1:8000/v1/query `
-  -H "Content-Type: application/json" `
+```bash
+curl -X POST http://127.0.0.1:8000/v1/query \
+  -H 'Content-Type: application/json' \
   -d '{"query":"When should SKU-994X be replaced?"}'
 ```
 
@@ -72,9 +83,8 @@ answer when it cannot find a meaningful exact-term match.
 
 The provider-independent core has a standard-library test path:
 
-```powershell
-$env:PYTHONPATH = "src"
-python -m unittest discover -s tests -p "test_*.py" -v
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 The FastAPI and optional document adapters are declared in `pyproject.toml`.

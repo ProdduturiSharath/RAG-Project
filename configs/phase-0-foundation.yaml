@@ -1,0 +1,6 @@
+experiment_id: phase-0-foundation
+seed: 0
+dataset: none
+system: foundation
+parameters:
+  purpose: provenance-only

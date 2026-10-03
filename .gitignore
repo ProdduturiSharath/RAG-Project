@@ -17,6 +17,8 @@ build/
 data/raw/
 data/processed/
 logs/
+.cache/
+results/*.tmp
 
 # Local agent state
 __agent__/

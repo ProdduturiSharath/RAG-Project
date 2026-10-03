@@ -1,50 +1,66 @@
-"""Application settings with a deliberately small environment surface.
+"""Typed application settings loaded from the environment.
 
-The first local slice does not require provider credentials.  Keeping settings
-in a plain dataclass also means workers and tests can construct an application
-without loading a global configuration object.
+Settings are validated at the application boundary with ``pydantic-settings``.
+The explicit aliases preserve the existing ``RAG_*`` environment contract while
+allowing tests and workers to construct a validated object directly.
 """
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def _int_env(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    try:
-        return int(value)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be an integer") from exc
-
-
-def _float_env(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or not value.strip():
-        return default
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a number") from exc
-
-
-@dataclass(frozen=True, slots=True)
-class Settings:
+class Settings(BaseSettings):
     """Runtime configuration for the API and its local adapters."""
 
-    environment: str = "development"
-    log_level: str = "INFO"
-    chunk_max_tokens: int = 220
-    chunk_overlap_tokens: int = 35
-    retrieval_top_k: int = 5
-    retrieval_candidate_k: int = 30
-    hybrid_alpha: float = 0.55
-    max_context_chars: int = 18_000
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        frozen=True,
+    )
 
-    def __post_init__(self) -> None:
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices("RAG_ENV", "environment"),
+    )
+    log_level: str = Field(
+        default="INFO",
+        validation_alias=AliasChoices("RAG_LOG_LEVEL", "log_level"),
+    )
+    chunk_max_tokens: int = Field(
+        default=220,
+        validation_alias=AliasChoices("RAG_CHUNK_MAX_TOKENS", "chunk_max_tokens"),
+    )
+    chunk_overlap_tokens: int = Field(
+        default=35,
+        validation_alias=AliasChoices("RAG_CHUNK_OVERLAP_TOKENS", "chunk_overlap_tokens"),
+    )
+    retrieval_top_k: int = Field(
+        default=5,
+        validation_alias=AliasChoices("RAG_RETRIEVAL_TOP_K", "retrieval_top_k"),
+    )
+    retrieval_candidate_k: int = Field(
+        default=30,
+        validation_alias=AliasChoices("RAG_RETRIEVAL_CANDIDATE_K", "retrieval_candidate_k"),
+    )
+    hybrid_alpha: float = Field(
+        default=0.55,
+        validation_alias=AliasChoices("RAG_HYBRID_ALPHA", "hybrid_alpha"),
+    )
+    max_context_chars: int = Field(
+        default=18_000,
+        validation_alias=AliasChoices("RAG_MAX_CONTEXT_CHARS", "max_context_chars"),
+    )
+
+    @field_validator("log_level")
+    @classmethod
+    def normalize_log_level(cls, value: str) -> str:
+        return value.upper()
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> Settings:
         if self.chunk_max_tokens < 1:
             raise ValueError("chunk_max_tokens must be positive")
         if not 0 <= self.chunk_overlap_tokens < self.chunk_max_tokens:
@@ -57,19 +73,13 @@ class Settings:
             raise ValueError("hybrid_alpha must be between zero and one")
         if self.max_context_chars < 1:
             raise ValueError("max_context_chars must be positive")
+        return self
 
     @classmethod
     def from_env(cls) -> Settings:
-        return cls(
-            environment=os.getenv("RAG_ENV", "development"),
-            log_level=os.getenv("RAG_LOG_LEVEL", "INFO").upper(),
-            chunk_max_tokens=_int_env("RAG_CHUNK_MAX_TOKENS", 220),
-            chunk_overlap_tokens=_int_env("RAG_CHUNK_OVERLAP_TOKENS", 35),
-            retrieval_top_k=_int_env("RAG_RETRIEVAL_TOP_K", 5),
-            retrieval_candidate_k=_int_env("RAG_RETRIEVAL_CANDIDATE_K", 30),
-            hybrid_alpha=_float_env("RAG_HYBRID_ALPHA", 0.55),
-            max_context_chars=_int_env("RAG_MAX_CONTEXT_CHARS", 18_000),
-        )
+        """Compatibility constructor for callers that used the old API."""
+
+        return cls()
 
 
 def load_settings() -> Settings:

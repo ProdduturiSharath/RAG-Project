@@ -53,7 +53,7 @@ class PineconeHybridIndex:
         if not api_key:
             raise RuntimeError("PINECONE_API_KEY is required for Pinecone indexing")
         try:
-            from pinecone import Pinecone  # type: ignore[import-not-found]
+            from pinecone import Pinecone
         except ImportError as exc:
             raise RuntimeError(
                 "Pinecone support requires the optional 'pinecone' dependency"
