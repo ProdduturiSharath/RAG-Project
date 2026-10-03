@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import unittest
 from collections.abc import Sequence
 from typing import Any
@@ -10,6 +9,7 @@ from rag_service.domain import AccessPolicy, DocumentSection
 from rag_service.ingestion import ChunkingConfig, DeterministicChunker
 from rag_service.retrieval import Bm25SparseEncoder, HashEmbeddingEncoder
 from rag_service.storage import InMemoryVersionedStore, PostgresVersionedStore
+from tests.integration.database import test_database_url
 
 
 class CountingEmbedder(HashEmbeddingEncoder):
@@ -24,7 +24,7 @@ class CountingEmbedder(HashEmbeddingEncoder):
 
 
 def _database_url() -> str | None:
-    return os.getenv("RAG_TEST_DATABASE_URL")
+    return test_database_url()
 
 
 class VersionedStorageContractTests(unittest.TestCase):
@@ -62,7 +62,9 @@ class VersionedStorageContractTests(unittest.TestCase):
                 store, embedder, document_id = self._store(backend)
                 sections = [DocumentSection(text="The default value is 10.")]
                 first = store.ingest(document_id, sections, "pg17")
+                calls_after_first = len(embedder.calls)
                 same = store.ingest(document_id, sections, "pg17")
+                calls_after_same = len(embedder.calls)
                 updated = store.ingest(
                     document_id,
                     [DocumentSection(text="The default value is 20.")],
@@ -72,6 +74,7 @@ class VersionedStorageContractTests(unittest.TestCase):
                 self.assertEqual(first.revision, 1)
                 self.assertTrue(same.already_ingested)
                 self.assertEqual(same.revision, 1)
+                self.assertEqual(calls_after_same, calls_after_first)
                 self.assertEqual(updated.revision, 2)
                 self.assertIsNotNone(store.active_revision(document_id, "pg17"))
                 self.assertEqual(store.delete_document(document_id, "pg17"), 2)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import unittest
 from uuid import uuid4
 
@@ -14,11 +13,12 @@ from rag_service.retrieval import (
 )
 from rag_service.retrieval.service import HybridRetriever
 from rag_service.storage import PostgresVersionedStore
+from tests.integration.database import test_database_url
 
 
 class PostgresRetrievalTests(unittest.IsolatedAsyncioTestCase):
     async def test_acl_and_product_version_are_filtered_before_ranking(self) -> None:
-        database_url = os.getenv("RAG_TEST_DATABASE_URL")
+        database_url = test_database_url()
         if database_url is None:
             self.skipTest("RAG_TEST_DATABASE_URL is not set")
         document_id = f"phase1-retrieval-{uuid4().hex}"
