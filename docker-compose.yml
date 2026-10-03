@@ -2,16 +2,16 @@ services:
   postgres:
     image: pgvector/pgvector:pg17@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
     environment:
-      POSTGRES_DB: evidence_rag
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-evidence_rag}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env and set POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d evidence_rag"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       timeout: 5s
       retries: 20
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
   api:
@@ -22,7 +22,7 @@ services:
       RAG_ENV: development
       RAG_LOG_LEVEL: INFO
       RAG_STORAGE_BACKEND: postgres
-      RAG_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evidence_rag
+      RAG_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-evidence_rag}
       RAG_MIGRATIONS_PATH: /app/migrations
     depends_on:
       postgres:
@@ -35,7 +35,7 @@ services:
       RAG_ENV: development
       RAG_LOG_LEVEL: INFO
       RAG_STORAGE_BACKEND: postgres
-      RAG_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evidence_rag
+      RAG_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-evidence_rag}
       RAG_MIGRATIONS_PATH: /app/migrations
     depends_on:
       postgres:
