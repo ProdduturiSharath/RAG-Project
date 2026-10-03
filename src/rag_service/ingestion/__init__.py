@@ -5,8 +5,10 @@ from .chunking import (
     ChunkingConfig,
     DeterministicChunker,
     StructureAwareChunker,
+    content_hash_for_chunk,
     content_hash_for_sections,
     stable_chunk_id,
+    stable_lineage_key,
     stable_section_id,
 )
 from .parsers import LocalTextParser, PyMuPDFParser
@@ -39,6 +41,8 @@ __all__ = [
     "SparseEncoderPort",
     "StructureAwareChunker",
     "content_hash_for_sections",
+    "content_hash_for_chunk",
     "stable_chunk_id",
+    "stable_lineage_key",
     "stable_section_id",
 ]

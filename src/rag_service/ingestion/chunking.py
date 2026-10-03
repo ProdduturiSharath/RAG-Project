@@ -13,12 +13,13 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from rag_service.domain import AccessPolicy, Chunk, DocumentSection, SourceLocation
 
 _TOKEN_RE = re.compile(r"\S+")
 _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*$")
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ class _SectionRecord:
     section_id: str
     occurrence: int
     parent_path: tuple[str, ...]
+    lineage_key: str
 
 
 def _json_value(value: Any) -> Any:
@@ -95,6 +97,30 @@ def stable_section_id(
         }
     )
     return f"section-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def stable_lineage_key(
+    document_id: str,
+    section_path: Sequence[str],
+    occurrence: int = 0,
+) -> str:
+    """Return a version-independent key for one logical section lineage."""
+
+    payload = _canonical_json(
+        {
+            "document_id": document_id,
+            "section_path": list(section_path),
+            "occurrence": occurrence,
+        }
+    )
+    return f"lineage-{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
+
+
+def content_hash_for_chunk(text: str, kind: str = "text") -> str:
+    """Hash reusable chunk content independently from document/version IDs."""
+
+    payload = _canonical_json({"kind": kind, "text": text.replace("\r\n", "\n")})
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def stable_chunk_id(
@@ -191,6 +217,8 @@ def _coerce_section(value: DocumentSection | Mapping[str, Any]) -> DocumentSecti
         "parent_section_id",
         "source",
         "children",
+        "lineage_key",
+        "kind",
     }
     metadata = dict(value.get("metadata", {}))
     # Preserve parser-specific fields instead of throwing them away.
@@ -217,6 +245,8 @@ def _coerce_section(value: DocumentSection | Mapping[str, Any]) -> DocumentSecti
         section_id=value.get("section_id"),
         parent_section_id=value.get("parent_section_id"),
         source=_source_from_value(value.get("source")),
+        lineage_key=value.get("lineage_key"),
+        kind=value.get("kind", "text"),
     )
 
 
@@ -253,6 +283,8 @@ def _split_markdown_section(section: DocumentSection) -> list[DocumentSection]:
                     section_id=section.section_id,
                     parent_section_id=section.parent_section_id,
                     source=section.source,
+                    lineage_key=section.lineage_key,
+                    kind=section.kind,
                 )
             )
         current_lines = []
@@ -369,6 +401,8 @@ class DeterministicChunker:
                     section_id=section_id,
                     occurrence=occurrence,
                     parent_path=path[:-1],
+                    lineage_key=section.lineage_key
+                    or stable_lineage_key(document_id, path, occurrence),
                 )
             )
 
@@ -382,11 +416,8 @@ class DeterministicChunker:
             text = record.section.text
             if not text.strip() and record.section.heading:
                 text = record.section.heading
-            windows = _token_windows(
-                text,
-                self.config.max_tokens,
-                self.config.overlap_tokens,
-            )
+            kind = self._kind(record.section, text)
+            windows = self._structured_windows(text, kind)
             if not windows:
                 continue
 
@@ -417,6 +448,9 @@ class DeterministicChunker:
                     source=record.section.source,
                     section_id=record.section_id,
                     access_policy=access_policy,
+                    kind=kind,
+                    content_hash=content_hash_for_chunk(window, kind),
+                    lineage_key=record.lineage_key,
                 )
                 if local_index == 0:
                     representatives[record.section_id] = chunk_id
@@ -463,6 +497,9 @@ class DeterministicChunker:
                     source=chunk.source,
                     section_id=chunk.section_id,
                     access_policy=chunk.access_policy,
+                    kind=chunk.kind,
+                    content_hash=chunk.content_hash,
+                    lineage_key=chunk.lineage_key,
                 )
 
         return tuple(chunks)
@@ -517,6 +554,30 @@ class DeterministicChunker:
                 return value
         return None
 
+    def _structured_windows(self, text: str, kind: str) -> list[str]:
+        """Keep tables and fenced code blocks intact as single chunks."""
+
+        if kind in {"table", "code"}:
+            value = text.strip()
+            return [value] if value else []
+        return _token_windows(
+            text,
+            self.config.max_tokens,
+            self.config.overlap_tokens,
+        )
+
+    @staticmethod
+    def _kind(section: DocumentSection, text: str) -> Literal["text", "table", "code"]:
+        if section.kind != "text":
+            return section.kind
+        if "```" in text:
+            return "code"
+        lines = [line for line in text.splitlines() if line.strip()]
+        if len(lines) >= 2 and any("|" in line for line in lines):
+            if any(_TABLE_SEPARATOR_RE.match(line) for line in lines):
+                return "table"
+        return "text"
+
     @staticmethod
     def _nearest_record_for_path(
         path: tuple[str, ...],
@@ -557,6 +618,8 @@ __all__ = [
     "DeterministicChunker",
     "StructureAwareChunker",
     "content_hash_for_sections",
+    "content_hash_for_chunk",
     "stable_chunk_id",
+    "stable_lineage_key",
     "stable_section_id",
 ]
