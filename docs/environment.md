@@ -56,3 +56,50 @@ The environment initially lacked `python3-venv` and pip. A no-`ensurepip`
 virtual environment was created and pip was bootstrapped from
 <https://bootstrap.pypa.io/get-pip.py>. The exact installed versions are
 recorded by `docs/status.md` and the pinned lock file.
+
+## Phase 1 pgvector verification
+
+The repository initially had no pgvector image installed. On 2026-10-03, the
+official `pgvector/pgvector:pg17` image was pulled and queried directly. The
+image digest was:
+
+```text
+sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+```
+
+The actual database output was:
+
+```text
+postgres_version: 17.11 (Debian 17.11-1.pgdg12+2)
+extversion: 0.8.7
+hnsw.iterative_scan: off
+ivfflat.iterative_scan: off
+hnsw.max_scan_tuples: 20000
+hnsw.scan_mem_multiplier: 1
+ivfflat.max_probes: 32768
+```
+
+The command also created an HNSW index on `vector(2000)` successfully. The
+official pgvector README at
+<https://raw.githubusercontent.com/pgvector/pgvector/master/README.md> was
+reachable and identifies the source/Docker release as `v0.8.7`. It documents
+HNSW and IVFFlat, iterative scans beginning in 0.8.0, and these index limits:
+
+| Type | Indexed limit documented by pgvector |
+| --- | ---: |
+| `vector` | 2,000 dimensions for HNSW/IVFFlat |
+| `halfvec` | 4,000 dimensions for HNSW/IVFFlat |
+| `bit` | 64,000 dimensions |
+| `sparsevec` | 1,000 non-zero elements for HNSW |
+
+The same documentation says the storage type can hold up to 16,000 dimensions
+for `vector` and `halfvec`, which is distinct from the approximate-index limit.
+The implementation therefore records the embedder dimension explicitly and will
+reject an index configuration above the verified HNSW limit rather than silently
+assuming support.
+
+Sources consulted:
+
+- <https://raw.githubusercontent.com/pgvector/pgvector/master/README.md>
+- <https://github.com/pgvector/pgvector/releases>
+- <https://www.postgresql.org/docs/current/gin.html>

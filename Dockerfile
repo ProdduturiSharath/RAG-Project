@@ -3,9 +3,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
+COPY requirements.lock ./
+COPY migrations ./migrations
 COPY src ./src
 
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir -r requirements.lock
 
 EXPOSE 8000
 

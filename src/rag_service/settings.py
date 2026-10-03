@@ -7,6 +7,8 @@ allowing tests and workers to construct a validated object directly.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -53,6 +55,32 @@ class Settings(BaseSettings):
         default=18_000,
         validation_alias=AliasChoices("RAG_MAX_CONTEXT_CHARS", "max_context_chars"),
     )
+    storage_backend: Literal["memory", "postgres"] = Field(
+        default="memory",
+        validation_alias=AliasChoices("RAG_STORAGE_BACKEND", "storage_backend"),
+    )
+    database_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/evidence_rag",
+        validation_alias=AliasChoices("RAG_DATABASE_URL", "database_url"),
+    )
+    embedder_id: str = Field(
+        default="hash-v1",
+        min_length=1,
+        validation_alias=AliasChoices("RAG_EMBEDDER_ID", "embedder_id"),
+    )
+    embedding_batch_size: int = Field(
+        default=64,
+        validation_alias=AliasChoices("RAG_EMBEDDING_BATCH_SIZE", "embedding_batch_size"),
+    )
+    migrations_path: str = Field(
+        default="migrations",
+        min_length=1,
+        validation_alias=AliasChoices("RAG_MIGRATIONS_PATH", "migrations_path"),
+    )
+    job_poll_seconds: float = Field(
+        default=1.0,
+        validation_alias=AliasChoices("RAG_JOB_POLL_SECONDS", "job_poll_seconds"),
+    )
 
     @field_validator("log_level")
     @classmethod
@@ -73,6 +101,10 @@ class Settings(BaseSettings):
             raise ValueError("hybrid_alpha must be between zero and one")
         if self.max_context_chars < 1:
             raise ValueError("max_context_chars must be positive")
+        if self.embedding_batch_size < 1:
+            raise ValueError("embedding_batch_size must be positive")
+        if self.job_poll_seconds <= 0:
+            raise ValueError("job_poll_seconds must be positive")
         return self
 
     @classmethod
