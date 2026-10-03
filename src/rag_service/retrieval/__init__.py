@@ -4,6 +4,7 @@ from .encoders import Bm25SparseEncoder, HashEmbeddingEncoder
 from .memory import InMemoryHybridIndex
 from .models import Citation, RetrievalFilters, ScoredChunk
 from .pinecone import PineconeHybridIndex, sparse_term_index
+from .postgres import PostgresHybridIndex
 from .service import HybridRetriever
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "HybridRetriever",
     "InMemoryHybridIndex",
     "PineconeHybridIndex",
+    "PostgresHybridIndex",
     "RetrievalFilters",
     "ScoredChunk",
     "sparse_term_index",

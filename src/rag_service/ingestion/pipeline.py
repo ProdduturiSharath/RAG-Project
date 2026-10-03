@@ -168,6 +168,23 @@ class IngestionPipeline:
     # ``run`` reads naturally in applications that treat ingestion as a job.
     run = ingest
 
+    def delete_document(self, document_id: str, product_version: str | None = None) -> int:
+        """Delete local indexed chunks and forget process-local idempotency state."""
+
+        deleted = 0
+        if self.index_writer is not None:
+            delete = getattr(self.index_writer, "delete_document", None)
+            if delete is not None:
+                deleted = int(delete(document_id, product_version))
+        keys = [
+            key
+            for key in self._results
+            if key[0] == document_id and (product_version is None or key[1] == product_version)
+        ]
+        for key in keys:
+            del self._results[key]
+        return deleted
+
     @staticmethod
     def _identity(document: DocumentIdentity | str) -> DocumentIdentity:
         if isinstance(document, DocumentIdentity):

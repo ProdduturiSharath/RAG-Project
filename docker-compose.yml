@@ -28,6 +28,19 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+  worker:
+    build: .
+    command: ["python", "-m", "rag_service.storage.worker"]
+    environment:
+      RAG_ENV: development
+      RAG_LOG_LEVEL: INFO
+      RAG_STORAGE_BACKEND: postgres
+      RAG_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/evidence_rag
+      RAG_MIGRATIONS_PATH: /app/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from rag_service.domain import (
     AccessPolicy,
@@ -14,7 +15,6 @@ from rag_service.domain import (
     SourceLocation,
 )
 from rag_service.generation import AnswerGenerator, GeneratedAnswer, GenerationRequest
-from rag_service.ingestion import IngestionPipeline
 from rag_service.retrieval import HybridRetriever, RetrievalFilters, ScoredChunk
 
 SectionInput = DocumentSection | Mapping[str, object]
@@ -33,7 +33,7 @@ class RagApplication:
 
     def __init__(
         self,
-        pipeline: IngestionPipeline,
+        pipeline: Any,
         retriever: HybridRetriever,
         generator: AnswerGenerator,
         *,
@@ -110,6 +110,12 @@ class RagApplication:
     ) -> AsyncIterator[str]:
         async for token in self.generator.stream(prepared.request):
             yield token
+
+    def delete_document(self, document_id: str, product_version: str | None = None) -> int:
+        delete = getattr(self.pipeline, "delete_document", None)
+        if delete is None:
+            raise RuntimeError("the configured ingestion backend does not support deletion")
+        return int(delete(document_id, product_version))
 
 
 __all__ = ["PreparedQuery", "RagApplication", "SectionInput"]

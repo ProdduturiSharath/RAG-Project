@@ -22,6 +22,7 @@ class RetrievalFilters:
     principal: str | None = None
     groups: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    product_version: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "document_ids", tuple(self.document_ids))
@@ -58,6 +59,7 @@ class ScoredChunk:
             page_number=self.chunk.page_number,
             section_path=self.chunk.section_path,
             excerpt=self.chunk.text,
+            revision=self.chunk.revision,
         )
 
 
@@ -72,6 +74,7 @@ class Citation:
     page_number: int | None = None
     section_path: tuple[str, ...] = ()
     excerpt: str = ""
+    revision: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "section_path", tuple(self.section_path))

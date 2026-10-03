@@ -181,8 +181,10 @@ class InMemoryHybridIndex:
     @staticmethod
     def _matches(chunk: Chunk, filters: RetrievalFilters | None) -> bool:
         if filters is None:
-            return True
+            filters = RetrievalFilters()
         if filters.document_ids and chunk.document_id not in filters.document_ids:
+            return False
+        if filters.product_version is not None and chunk.version != filters.product_version:
             return False
         policy = chunk.access_policy
         if policy is not None and not policy.allows(filters.principal, groups=filters.groups):

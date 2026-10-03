@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from rag_service.domain import AccessPolicy, Chunk, DocumentSection, SourceLocation
@@ -170,6 +170,8 @@ def content_hash_for_sections(sections: Iterable[DocumentSection | Mapping[str, 
                 "section_id": parsed.section_id,
                 "parent_section_id": parsed.parent_section_id,
                 "source": parsed.source.stable_uri if parsed.source else None,
+                "kind": parsed.kind,
+                "lineage_key": parsed.lineage_key,
             }
         )
     payload = _canonical_json(canonical)
@@ -289,8 +291,15 @@ def _split_markdown_section(section: DocumentSection) -> list[DocumentSection]:
             )
         current_lines = []
 
+    fence: str | None = None
     for line in lines:
-        match = _HEADING_RE.match(line.rstrip("\r\n"))
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            marker = stripped[:3]
+            fence = None if fence == marker else marker if fence is None else fence
+            current_lines.append(line)
+            continue
+        match = _HEADING_RE.match(line.rstrip("\r\n")) if fence is None else None
         if match:
             emit()
             current_level = len(match.group(1))
@@ -416,13 +425,12 @@ class DeterministicChunker:
             text = record.section.text
             if not text.strip() and record.section.heading:
                 text = record.section.heading
-            kind = self._kind(record.section, text)
-            windows = self._structured_windows(text, kind)
+            windows = self._structured_windows(text, record.section.kind)
             if not windows:
                 continue
 
             page_number = self._page_number(record.section)
-            for local_index, window in enumerate(windows):
+            for local_index, (kind, window) in enumerate(windows):
                 chunk_id = stable_chunk_id(
                     document_id,
                     version,
@@ -451,6 +459,7 @@ class DeterministicChunker:
                     kind=kind,
                     content_hash=content_hash_for_chunk(window, kind),
                     lineage_key=record.lineage_key,
+                    parent_text=text,
                 )
                 if local_index == 0:
                     representatives[record.section_id] = chunk_id
@@ -482,25 +491,7 @@ class DeterministicChunker:
         for index, chunk in enumerate(chunks):
             child_ids = tuple(dict.fromkeys(child_ids_by_parent.get(chunk.chunk_id, ())))
             if child_ids:
-                chunks[index] = Chunk(
-                    chunk_id=chunk.chunk_id,
-                    document_id=chunk.document_id,
-                    version=chunk.version,
-                    text=chunk.text,
-                    section_path=chunk.section_path,
-                    ordinal=chunk.ordinal,
-                    parent_id=chunk.parent_id,
-                    child_ids=child_ids,
-                    page_number=chunk.page_number,
-                    page_metadata=chunk.page_metadata,
-                    metadata=chunk.metadata,
-                    source=chunk.source,
-                    section_id=chunk.section_id,
-                    access_policy=chunk.access_policy,
-                    kind=chunk.kind,
-                    content_hash=chunk.content_hash,
-                    lineage_key=chunk.lineage_key,
-                )
+                chunks[index] = replace(chunk, child_ids=child_ids)
 
         return tuple(chunks)
 
@@ -554,29 +545,57 @@ class DeterministicChunker:
                 return value
         return None
 
-    def _structured_windows(self, text: str, kind: str) -> list[str]:
-        """Keep tables and fenced code blocks intact as single chunks."""
+    def _structured_windows(
+        self, text: str, kind: Literal["text", "table", "code"]
+    ) -> list[tuple[Literal["text", "table", "code"], str]]:
+        """Window prose; preserve each table/caption and fenced block intact."""
 
-        if kind in {"table", "code"}:
-            value = text.strip()
-            return [value] if value else []
-        return _token_windows(
-            text,
-            self.config.max_tokens,
-            self.config.overlap_tokens,
-        )
+        if kind != "text":
+            return [(kind, text.strip())] if text.strip() else []
+        lines = text.splitlines(keepends=True)
+        output: list[tuple[Literal["text", "table", "code"], str]] = []
+        prose: list[str] = []
 
-    @staticmethod
-    def _kind(section: DocumentSection, text: str) -> Literal["text", "table", "code"]:
-        if section.kind != "text":
-            return section.kind
-        if "```" in text:
-            return "code"
-        lines = [line for line in text.splitlines() if line.strip()]
-        if len(lines) >= 2 and any("|" in line for line in lines):
-            if any(_TABLE_SEPARATOR_RE.match(line) for line in lines):
-                return "table"
-        return "text"
+        def flush() -> None:
+            output.extend(("text", window) for window in _token_windows(
+                "".join(prose), self.config.max_tokens, self.config.overlap_tokens
+            ))
+            prose.clear()
+
+        i = 0
+        while i < len(lines):
+            stripped = lines[i].lstrip()
+            if stripped.startswith(("```", "~~~")):
+                flush()
+                marker = stripped[:3]
+                block = [lines[i]]
+                i += 1
+                while i < len(lines):
+                    block.append(lines[i])
+                    i += 1
+                    if block[-1].lstrip().startswith(marker):
+                        break
+                output.append(("code", "".join(block).strip()))
+            elif i + 1 < len(lines) and _TABLE_SEPARATOR_RE.match(lines[i + 1]):
+                # Markdown captions conventionally precede the table. Preserve
+                # the preceding paragraph with it (including a blank separator).
+                caption: list[str] = []
+                while prose and not prose[-1].strip():
+                    caption.insert(0, prose.pop())
+                while prose and prose[-1].strip():
+                    caption.insert(0, prose.pop())
+                flush()
+                block = caption + [lines[i], lines[i + 1]]
+                i += 2
+                while i < len(lines) and "|" in lines[i] and lines[i].strip():
+                    block.append(lines[i])
+                    i += 1
+                output.append(("table", "".join(block).strip()))
+            else:
+                prose.append(lines[i])
+                i += 1
+        flush()
+        return output
 
     @staticmethod
     def _nearest_record_for_path(

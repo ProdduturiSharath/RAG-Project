@@ -246,6 +246,8 @@ class Chunk:
     kind: Literal["text", "table", "code"] = "text"
     content_hash: str | None = None
     lineage_key: str | None = None
+    revision: int = 1
+    parent_text: str | None = None
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
