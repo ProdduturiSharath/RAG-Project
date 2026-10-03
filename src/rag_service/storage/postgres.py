@@ -303,14 +303,20 @@ class PostgresJobStore:
         with self.database.connect() as conn:
             return conn.execute("SELECT * FROM jobs WHERE id=%s", (job_id,)).fetchone()
 
-    def claim_next(self) -> dict[str, Any] | None:
+    def claim_next(self, kind: str | None = None) -> dict[str, Any] | None:
         with self.database.connect() as conn:
             conn.execute("""UPDATE jobs SET status='queued', lease_token=NULL
                 WHERE status='running' AND locked_at < now()-interval '5 minutes'""")
+            if kind is None:
+                return conn.execute("""UPDATE jobs SET status='running', attempts=attempts+1,
+                    started_at=now(), locked_at=now(), lease_token=%s WHERE id=(
+                        SELECT id FROM jobs WHERE status='queued' ORDER BY created_at,id
+                        FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *""", (uuid.uuid4(),)).fetchone()
             return conn.execute("""UPDATE jobs SET status='running', attempts=attempts+1,
                 started_at=now(), locked_at=now(), lease_token=%s WHERE id=(
-                    SELECT id FROM jobs WHERE status='queued' ORDER BY created_at,id
-                    FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *""", (uuid.uuid4(),)).fetchone()
+                    SELECT id FROM jobs WHERE status='queued' AND kind=%s
+                    ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *""",
+                                (uuid.uuid4(), kind)).fetchone()
 
     def fail(self, job_id: str, lease_token: str, error: str) -> None:
         with self.database.connect() as conn:

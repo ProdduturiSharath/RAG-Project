@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from rag_service.domain import DocumentSection, SourceLocation
 from rag_service.ingestion import (
@@ -7,6 +9,7 @@ from rag_service.ingestion import (
     stable_chunk_id,
     stable_lineage_key,
 )
+from rag_service.ingestion.parsers import MarkdownHtmlParser
 
 
 class ChunkingTests(unittest.TestCase):
@@ -87,6 +90,18 @@ class ChunkingTests(unittest.TestCase):
             chunks[0].lineage_key,
             stable_lineage_key("postgres", ("Configuration",), 0),
         )
+
+    def test_html_parser_preserves_heading_structure(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "manual.html"
+            path.write_text(
+                "<h1>Maintenance</h1><p>Replace the filter.</p>", encoding="utf-8"
+            )
+            sections = tuple(MarkdownHtmlParser().parse(SourceLocation(path=str(path))))
+
+        self.assertEqual(sections[0].heading, "Maintenance")
+        self.assertEqual(sections[0].level, 1)
+        self.assertEqual(sections[1].text, "Replace the filter.")
 
 
 if __name__ == "__main__":

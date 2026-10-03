@@ -12,7 +12,7 @@ from .postgres import PostgresJobStore, PostgresVersionedStore
 
 
 async def run_once(store: PostgresVersionedStore, jobs: PostgresJobStore) -> bool:
-    job = await asyncio.to_thread(jobs.claim_next)
+    job = await asyncio.to_thread(jobs.claim_next, "ingest_document")
     if job is None:
         return False
     job_id = str(job["id"])

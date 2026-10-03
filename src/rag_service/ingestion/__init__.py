@@ -11,7 +11,7 @@ from .chunking import (
     stable_lineage_key,
     stable_section_id,
 )
-from .parsers import LocalTextParser, PyMuPDFParser
+from .parsers import LocalTextParser, MarkdownHtmlParser, PyMuPDFParser
 from .pipeline import IngestionPipeline
 from .ports import (
     Embedder,
@@ -34,6 +34,7 @@ __all__ = [
     "IndexWriterPort",
     "IngestionPipeline",
     "LocalTextParser",
+    "MarkdownHtmlParser",
     "Parser",
     "ParserPort",
     "PyMuPDFParser",
