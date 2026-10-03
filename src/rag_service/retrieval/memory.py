@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from rag_service.domain import Chunk
 
@@ -28,6 +29,7 @@ class InMemoryHybridIndex:
 
     def __init__(self) -> None:
         self._records: dict[str, _IndexedChunk] = {}
+        self.traces: dict[str, dict[str, Any]] = {}
 
     @property
     def count(self) -> int:
@@ -161,6 +163,58 @@ class InMemoryHybridIndex:
     def clear(self) -> None:
         self._records.clear()
 
+    def available_versions(self, filters: RetrievalFilters) -> dict[str, tuple[str, ...]]:
+        values: dict[str, set[str]] = {}
+        for record in self._records.values():
+            if self._matches(record.chunk, filters):
+                values.setdefault(record.chunk.document_id, set()).add(record.chunk.version)
+        return {key: tuple(sorted(versions)) for key, versions in values.items()}
+
+    def dense_search(self, vector: Sequence[float], *, top_k: int,
+                     filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
+        values = [ScoredChunk(r.chunk, dense_score=self._cosine(vector, r.dense_vector))
+                  for r in self._records.values() if self._matches(r.chunk, filters)]
+        return tuple(sorted(values, key=lambda v: (-v.dense_score, v.chunk.chunk_id))[:top_k])
+
+    def sparse_search(self, query: str, *, top_k: int, filters: RetrievalFilters,
+                      method: str = "bm25", identifiers: bool = True) -> tuple[ScoredChunk, ...]:
+        from .bm25 import bm25_search
+
+        if method != "bm25":
+            raise ValueError("Postgres full-text search requires the postgres backend")
+        return bm25_search(query, [r.chunk for r in self._records.values()
+                                   if self._matches(r.chunk, filters)], top_k)
+
+    def expand_parents(self, matches: Sequence[ScoredChunk], *,
+                       filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
+        by_id = {record.chunk.chunk_id: record.chunk for record in self._records.values()
+                 if self._matches(record.chunk, filters)}
+        result: list[ScoredChunk] = []
+        seen: set[str] = set()
+        for match in matches:
+            if match.chunk.chunk_id not in seen:
+                result.append(match)
+                seen.add(match.chunk.chunk_id)
+            parent = by_id.get(match.chunk.parent_id or "")
+            if parent is not None and parent.chunk_id not in seen:
+                result.append(ScoredChunk(
+                    parent,
+                    dense_score=match.dense_score,
+                    sparse_score=match.sparse_score,
+                    hybrid_score=match.hybrid_score * 0.95,
+                ))
+                seen.add(parent.chunk_id)
+        return tuple(result)
+
+    def save_trace(self, trace_id: str, query: str, filters: RetrievalFilters,
+                   stages: Sequence[dict[str, Any]]) -> None:
+        self.traces[trace_id] = {
+            "query": query,
+            "requester": filters.principal,
+            "product_version": filters.product_version,
+            "stages": list(stages),
+        }
+
     @staticmethod
     def _cosine(left: Sequence[float], right: Sequence[float] | None) -> float:
         if not left or not right or len(left) != len(right):
@@ -185,6 +239,8 @@ class InMemoryHybridIndex:
         if filters.document_ids and chunk.document_id not in filters.document_ids:
             return False
         if filters.product_version is not None and chunk.version != filters.product_version:
+            return False
+        if filters.scopes is not None and (chunk.document_id, chunk.version) not in filters.scopes:
             return False
         policy = chunk.access_policy
         if policy is not None and not policy.allows(filters.principal, groups=filters.groups):

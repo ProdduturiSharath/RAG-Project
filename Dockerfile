@@ -7,7 +7,7 @@ COPY requirements.lock ./
 COPY migrations ./migrations
 COPY src ./src
 
-RUN python -m pip install --no-cache-dir -r requirements.lock
+RUN python -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.lock
 
 EXPOSE 8000
 

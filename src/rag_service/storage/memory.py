@@ -175,7 +175,10 @@ class InMemoryVersionedStore:
             if (chunk.content_hash, self.embedder_id) not in self._embeddings
         ]
         if missing:
-            dense = self.embedder.embed(tuple(chunk.text for chunk in missing))
+            embed_chunks = getattr(self.embedder, "embed_chunks", None)
+            dense = embed_chunks(missing) if embed_chunks is not None else self.embedder.embed(
+                tuple(chunk.text for chunk in missing)
+            )
             sparse = self.sparse_encoder.encode(tuple(chunk.text for chunk in missing))
             for chunk, dense_vector, sparse_vector in zip(missing, dense, sparse, strict=True):
                 self._embeddings[(chunk.content_hash or "", self.embedder_id)] = (

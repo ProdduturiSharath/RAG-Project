@@ -113,6 +113,19 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual([chunk.kind for chunk in chunks[-2:]], ["table", "code"])
         self.assertIn("max_wal_senders", chunks[-2].text)
 
+    def test_html_parser_keeps_one_column_command_output_as_data(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "wal.html"
+            path.write_text(
+                "<table><tr><td>wal_level</td></tr><tr><td>replica</td></tr></table>",
+                encoding="utf-8",
+            )
+            sections = tuple(MarkdownHtmlParser().parse(SourceLocation(path=str(path))))
+
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0].kind, "table")
+        self.assertEqual(sections[0].text, "| wal_level |\n| replica |")
+
 
 if __name__ == "__main__":
     unittest.main()

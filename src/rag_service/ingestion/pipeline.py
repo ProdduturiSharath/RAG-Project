@@ -100,7 +100,7 @@ class IngestionPipeline:
             access_policy=effective_policy,
         )
         texts = tuple(chunk.text for chunk in chunks)
-        dense_vectors = self._dense_vectors(texts)
+        dense_vectors = self._dense_vectors(chunks)
         sparse_vectors = self._sparse_vectors(texts)
 
         self._write(chunks, dense_vectors, sparse_vectors)
@@ -212,14 +212,15 @@ class IngestionPipeline:
             return version, None
         raise TypeError("version must be a string, DocumentVersion, or None")
 
-    def _dense_vectors(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
-        if self.embedder is None or not texts:
+    def _dense_vectors(self, chunks: Sequence[Chunk]) -> tuple[tuple[float, ...], ...]:
+        if self.embedder is None or not chunks:
             return ()
-        vectors = tuple(
-            tuple(float(value) for value in vector)
-            for vector in self.embedder.embed(texts)
+        embed_chunks = getattr(self.embedder, "embed_chunks", None)
+        values = embed_chunks(chunks) if embed_chunks is not None else self.embedder.embed(
+            tuple(chunk.text for chunk in chunks)
         )
-        self._validate_vector_count("dense", len(texts), len(vectors))
+        vectors = tuple(tuple(float(value) for value in vector) for vector in values)
+        self._validate_vector_count("dense", len(chunks), len(vectors))
         return vectors
 
     def _sparse_vectors(

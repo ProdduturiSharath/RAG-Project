@@ -220,9 +220,16 @@ class PostgresVersionedStore:
         missing = [key for key in unique if key not in vectors]
         for start in range(0, len(missing), self.batch_size):
             keys = missing[start:start + self.batch_size]
-            texts = tuple(unique[key].text for key in keys)
-            values = validate_vectors(self.embedder.embed(texts),
-                                      self.sparse_encoder.encode(texts), len(keys))
+            chunks = tuple(unique[key] for key in keys)
+            embed_chunks = getattr(self.embedder, "embed_chunks", None)
+            dense = embed_chunks(chunks) if embed_chunks is not None else self.embedder.embed(
+                tuple(chunk.text for chunk in chunks)
+            )
+            values = validate_vectors(
+                dense,
+                self.sparse_encoder.encode(tuple(chunk.text for chunk in chunks)),
+                len(keys),
+            )
             vectors.update(zip(keys, values, strict=True))
         return vectors
 
