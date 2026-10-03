@@ -101,3 +101,25 @@ it does not invent a retrieval metric.
   no live provider behavior is claimed.
 - The project has no corpus or validated benchmark, so no retrieval quality
   conclusion is warranted.
+
+## Phase 1 post-PR-2 handoff — 2026-10-03
+
+- PR #2 remains open and unmerged on `phase-1-postgres-versioned-ingestion`.
+- Commits `a4bbf47`, `2cd61e9`, and `c0f594a` add disposable integration
+  databases, atomic-revision/reader/concurrency coverage, pinned pgvector CI,
+  localhost-only Compose binding, `.env` password configuration, and typed HTML
+  table/code parsing.
+- The two required hand mutants were each caught and restored: omitted
+  supersession failed the reader atomicity test; omitted
+  `document_versions_one_active` failed the unique-index test.
+- Final local verification: full suite `28 passed`; integration suite `13
+  passed`; Ruff and mypy passed. CI run `37120488480` passed both unit and
+  integration jobs; its integration job created and dropped a `rag_test_*`
+  database and reported `13 passed`.
+- Clean-volume Compose restart was run twice during verification; the final
+  suite was run twice in sequence and once with a seeded shuffled order.
+- Live query verified PostgreSQL `17.11` with pgvector `0.8.7`; the exact
+  official release URL checked was
+  `https://github.com/pgvector/pgvector/releases/tag/v0.8.7`.
+- Real smoke input was fetched to `/tmp/omnirush` only from PostgreSQL 17
+  documentation; it produced 125 sections, 2 table chunks, and 2 code chunks.
