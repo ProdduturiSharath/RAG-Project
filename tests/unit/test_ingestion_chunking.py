@@ -95,13 +95,23 @@ class ChunkingTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "manual.html"
             path.write_text(
-                "<h1>Maintenance</h1><p>Replace the filter.</p>", encoding="utf-8"
+                "<h1>Maintenance</h1><p>Replace the filter.</p>"
+                "<table><tr><th>Setting</th><th>Value</th></tr>"
+                "<tr><td>max_wal_senders</td><td>10</td></tr></table>"
+                "<pre>SELECT * FROM pg_stat_activity;</pre>",
+                encoding="utf-8",
             )
             sections = tuple(MarkdownHtmlParser().parse(SourceLocation(path=str(path))))
 
         self.assertEqual(sections[0].heading, "Maintenance")
         self.assertEqual(sections[0].level, 1)
         self.assertEqual(sections[1].text, "Replace the filter.")
+        self.assertEqual([section.kind for section in sections[2:]], ["table", "code"])
+        chunks = DeterministicChunker(max_tokens=2, overlap_tokens=0).chunk(
+            sections, document_id="manual", version="v1"
+        )
+        self.assertEqual([chunk.kind for chunk in chunks[-2:]], ["table", "code"])
+        self.assertIn("max_wal_senders", chunks[-2].text)
 
 
 if __name__ == "__main__":

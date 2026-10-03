@@ -76,8 +76,49 @@ class _HTMLSectionCollector(HTMLParser):
         self._heading: str | None = None
         self._level = 0
         self._parts: list[str] = []
+        self._special_kind: str | None = None
+        self._special_parts: list[str] = []
+        self._table_rows: list[list[str]] = []
+        self._table_row: list[str] | None = None
+        self._table_cell: list[str] | None = None
+        self._table_depth = 0
+        self._ignored_table_depth = 0
+        self._pre_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._special_kind == "table":
+            if tag == "table":
+                self._table_depth += 1
+            elif tag == "tr":
+                self._table_row = []
+            elif tag in {"td", "th"}:
+                self._table_cell = []
+            return
+        if self._special_kind == "ignored_table":
+            if tag == "table":
+                self._ignored_table_depth += 1
+            return
+        if self._special_kind == "code":
+            if tag == "pre":
+                self._pre_depth += 1
+            return
+        if tag == "table":
+            summary = dict(attrs).get("summary", "") or ""
+            self._flush()
+            if summary.startswith("Navigation"):
+                self._special_kind = "ignored_table"
+                self._ignored_table_depth = 1
+            else:
+                self._special_kind = "table"
+                self._table_depth = 1
+                self._table_rows = []
+            return
+        if tag == "pre":
+            self._flush()
+            self._special_kind = "code"
+            self._special_parts = []
+            self._pre_depth = 1
+            return
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             self._flush()
             self._heading = None
@@ -86,10 +127,48 @@ class _HTMLSectionCollector(HTMLParser):
             self._parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
+        if self._special_kind == "table":
+            if tag in {"td", "th"} and self._table_cell is not None:
+                self._table_row = self._table_row or []
+                self._table_row.append(" ".join("".join(self._table_cell).split()))
+                self._table_cell = None
+            elif tag == "tr" and self._table_row:
+                self._table_rows.append(self._table_row)
+                self._table_row = None
+            elif tag == "table":
+                self._table_depth -= 1
+                if self._table_depth == 0:
+                    self._emit_table()
+            return
+        if self._special_kind == "ignored_table":
+            if tag == "table":
+                self._ignored_table_depth -= 1
+                if self._ignored_table_depth == 0:
+                    self._special_kind = None
+            return
+        if self._special_kind == "code":
+            if tag == "pre":
+                self._pre_depth -= 1
+                if self._pre_depth == 0:
+                    text = "".join(self._special_parts).strip()
+                    if text:
+                        self.sections.append(DocumentSection(text=text, kind="code"))
+                    self._special_kind = None
+                    self._special_parts.clear()
+            return
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "li", "tr"}:
             self._flush_heading_or_text()
 
     def handle_data(self, data: str) -> None:
+        if self._special_kind == "table":
+            if self._table_cell is not None:
+                self._table_cell.append(data)
+            return
+        if self._special_kind == "code":
+            self._special_parts.append(data)
+            return
+        if self._special_kind == "ignored_table":
+            return
         if data.strip():
             if self._level and self._heading is None:
                 self._heading = data.strip()
@@ -107,6 +186,7 @@ class _HTMLSectionCollector(HTMLParser):
             )
             self._heading = None
             self._level = 0
+            self._parts.clear()
         else:
             self._flush()
 
@@ -115,6 +195,22 @@ class _HTMLSectionCollector(HTMLParser):
         if text:
             self.sections.append(DocumentSection(text=text))
         self._parts.clear()
+
+    def _emit_table(self) -> None:
+        rows = [row for row in self._table_rows if row]
+        if rows:
+            width = max(len(row) for row in rows)
+            normalized = [row + [""] * (width - len(row)) for row in rows]
+            markdown = [
+                "| " + " | ".join(normalized[0]) + " |",
+                "| " + " | ".join("---" for _ in range(width)) + " |",
+            ]
+            markdown.extend("| " + " | ".join(row) + " |" for row in normalized[1:])
+            self.sections.append(DocumentSection(text="\n".join(markdown), kind="table"))
+        self._special_kind = None
+        self._table_rows.clear()
+        self._table_row = None
+        self._table_cell = None
 
 
 class MarkdownHtmlParser(LocalTextParser):
@@ -137,6 +233,7 @@ class MarkdownHtmlParser(LocalTextParser):
                 level=section.level,
                 page_metadata={"file_name": path.name, "file_type": path.suffix.lower()},
                 source=source,
+                kind=section.kind,
             )
 
 
