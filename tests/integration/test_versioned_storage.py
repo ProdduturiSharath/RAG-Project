@@ -133,6 +133,54 @@ class VersionedStorageContractTests(unittest.TestCase):
                 self.assertIsNotNone(active)
                 self.assertEqual(active["revision"], 1)
 
+    def test_embedder_and_chunker_changes_create_provenance_revisions(self) -> None:
+        database_url = _database_url()
+        if database_url is None:
+            self.skipTest("RAG_TEST_DATABASE_URL is not set")
+        document_id = f"phase1-provenance-{uuid4().hex}"
+        sections = [
+            DocumentSection(
+                text="The unchanged content is deliberately long enough to produce "
+                "more than one configured chunk for provenance testing."
+            )
+        ]
+        first_embedder = CountingEmbedder()
+        first = PostgresVersionedStore(
+            database_url,
+            DeterministicChunker(max_tokens=40, overlap_tokens=0),
+            embedder=first_embedder,
+            sparse_encoder=Bm25SparseEncoder(),
+            embedder_id="hash-v1",
+            migrations_path="migrations",
+        )
+        first.migrate()
+        first.ingest(document_id, sections, "pg17")
+        second = PostgresVersionedStore(
+            database_url,
+            DeterministicChunker(max_tokens=40, overlap_tokens=0),
+            embedder=CountingEmbedder(),
+            sparse_encoder=Bm25SparseEncoder(),
+            embedder_id="hash-v2",
+            migrations_path="migrations",
+        )
+        second.ingest(document_id, sections, "pg17")
+        third = PostgresVersionedStore(
+            database_url,
+            DeterministicChunker(max_tokens=4, overlap_tokens=1),
+            embedder=CountingEmbedder(),
+            sparse_encoder=Bm25SparseEncoder(),
+            embedder_id="hash-v2",
+            migrations_path="migrations",
+        )
+        third.ingest(document_id, sections, "pg17")
+
+        active = third.active_revision(document_id, "pg17")
+        self.assertIsNotNone(active)
+        assert active is not None
+        self.assertEqual(active["revision"], 3)
+        self.assertEqual(active["embedder_id"], "hash-v2")
+        self.assertNotEqual(active["chunker_config_hash"], first.chunker_config_hash)
+
 
 if __name__ == "__main__":
     unittest.main()
