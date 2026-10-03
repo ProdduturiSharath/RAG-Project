@@ -4,6 +4,9 @@
 
 Phase 2 is implemented on `phase-2-retrieval-pipeline`.
 
+Commits: `681c2be` (implementation) and `afaf1c3` (CI workflow indentation
+fix). Pull request: <https://github.com/ProdduturiSharath/RAG-Project/pull/3>.
+
 - Rebuilt the local environment on Python 3.12.15 and pinned CPU PyTorch,
   sentence-transformers, Transformers, and model-runtime dependencies.
 - Added lazy local BGE small/base dense adapters and the configurable metadata
