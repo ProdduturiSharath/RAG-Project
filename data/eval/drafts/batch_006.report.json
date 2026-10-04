@@ -1,0 +1,20 @@
+{
+  "accepted": 24,
+  "accepted_by_type": {
+    "exact_identifier": 4,
+    "table": 19,
+    "version_unavailable": 1
+  },
+  "batch": "batch_006.json",
+  "discarded": 1,
+  "discarded_by_type": {
+    "version_unavailable": 1
+  },
+  "reasons": [
+    {
+      "reason": "unavailable identifier exists in requested version",
+      "row": 24,
+      "type": "version_unavailable"
+    }
+  ]
+}
