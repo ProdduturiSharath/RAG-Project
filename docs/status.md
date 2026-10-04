@@ -123,3 +123,5 @@ it does not invent a retrieval metric.
   `https://github.com/pgvector/pgvector/releases/tag/v0.8.7`.
 - Real smoke input was fetched to `/tmp/omnirush` only from PostgreSQL 17
   documentation; it produced 125 sections, 2 table chunks, and 2 code chunks.
+
+Phase 2 implementation is complete on `phase-2-retrieval-pipeline`; final verification and PR are recorded in `docs/phase-2-report.md`.

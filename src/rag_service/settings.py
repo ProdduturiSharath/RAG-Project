@@ -51,6 +51,40 @@ class Settings(BaseSettings):
         default=0.55,
         validation_alias=AliasChoices("RAG_HYBRID_ALPHA", "hybrid_alpha"),
     )
+    dense_model: str = Field(
+        default="bge-small",
+        validation_alias=AliasChoices("RAG_DENSE_MODEL", "dense_model"),
+    )
+    metadata_prefixed_embeddings: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "RAG_METADATA_PREFIXED_EMBEDDINGS", "metadata_prefixed_embeddings"
+        ),
+    )
+    fusion_method: Literal["rrf", "weighted"] = Field(
+        default="rrf",
+        validation_alias=AliasChoices("RAG_FUSION_METHOD", "fusion_method"),
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L6-v2",
+        validation_alias=AliasChoices("RAG_RERANKER_MODEL", "reranker_model"),
+    )
+    rerank_top_n: int = Field(
+        default=30,
+        validation_alias=AliasChoices("RAG_RERANK_TOP_N", "rerank_top_n"),
+    )
+    version_mode: Literal["none", "explicit", "auto"] = Field(
+        default="none",
+        validation_alias=AliasChoices("RAG_VERSION_MODE", "version_mode"),
+    )
+    version_selector: Literal["exact", "latest", "all"] = Field(
+        default="exact",
+        validation_alias=AliasChoices("RAG_VERSION_SELECTOR", "version_selector"),
+    )
+    parent_expansion: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_PARENT_EXPANSION", "parent_expansion"),
+    )
     max_context_chars: int = Field(
         default=18_000,
         validation_alias=AliasChoices("RAG_MAX_CONTEXT_CHARS", "max_context_chars"),
@@ -64,7 +98,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("RAG_DATABASE_URL", "database_url"),
     )
     embedder_id: str = Field(
-        default="hash-v1",
+        default="bge-small-en-v1.5",
         min_length=1,
         validation_alias=AliasChoices("RAG_EMBEDDER_ID", "embedder_id"),
     )
@@ -99,6 +133,8 @@ class Settings(BaseSettings):
             raise ValueError("retrieval_candidate_k must be at least retrieval_top_k")
         if not 0 <= self.hybrid_alpha <= 1:
             raise ValueError("hybrid_alpha must be between zero and one")
+        if self.rerank_top_n < 1:
+            raise ValueError("rerank_top_n must be positive")
         if self.max_context_chars < 1:
             raise ValueError("max_context_chars must be positive")
         if self.embedding_batch_size < 1:

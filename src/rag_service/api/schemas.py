@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,6 +64,8 @@ class QueryRequest(BaseModel):
     principal: str | None = None
     groups: list[str] = Field(default_factory=list)
     product_version: str | None = None
+    version_mode: Literal["none", "explicit", "auto"] | None = None
+    version_selector: Literal["exact", "latest", "all"] = "exact"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -71,6 +73,7 @@ class CitationResponse(BaseModel):
     chunk_id: str
     document_id: str
     version: str
+    product_version: str
     source_uri: str | None = None
     page_number: int | None = None
     section_path: list[str] = Field(default_factory=list)
@@ -82,6 +85,7 @@ class MatchResponse(BaseModel):
     chunk_id: str
     document_id: str
     version: str
+    product_version: str
     text: str
     section_path: list[str] = Field(default_factory=list)
     page_number: int | None = None
@@ -99,6 +103,9 @@ class QueryResponse(BaseModel):
     matches: list[MatchResponse] = Field(default_factory=list)
     confidence: float
     abstained: bool
+    trace_id: str | None = None
+    scope_status: str = "resolved"
+    scope_versions: list[str] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):

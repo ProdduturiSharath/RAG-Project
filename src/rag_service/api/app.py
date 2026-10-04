@@ -157,6 +157,9 @@ def create_app(
             matches=[_match_response(match) for match in prepared.matches],
             confidence=generated.confidence,
             abstained=generated.abstained,
+            trace_id=prepared.trace_id,
+            scope_status=prepared.scope_status,
+            scope_versions=list(prepared.scope_versions),
         )
 
     @app.post("/v1/query/stream")
@@ -248,6 +251,8 @@ def _filters_from_payload(payload: QueryRequest) -> RetrievalFilters:
         groups=tuple(payload.groups),
         metadata=payload.metadata,
         product_version=payload.product_version,
+        version_mode=payload.version_mode,
+        version_selector=payload.version_selector,
     )
 
 
@@ -256,6 +261,7 @@ def _citation_response(citation: Citation) -> CitationResponse:
         chunk_id=citation.chunk_id,
         document_id=citation.document_id,
         version=citation.version,
+        product_version=citation.product_version,
         source_uri=citation.source_uri,
         page_number=citation.page_number,
         section_path=list(citation.section_path),
@@ -277,6 +283,7 @@ def _match_response(match: ScoredChunk) -> MatchResponse:
         chunk_id=chunk.chunk_id,
         document_id=chunk.document_id,
         version=chunk.version,
+        product_version=chunk.product_version,
         text=chunk.text,
         section_path=list(chunk.section_path),
         page_number=chunk.page_number,

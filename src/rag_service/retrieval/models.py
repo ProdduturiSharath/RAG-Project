@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from rag_service.domain import Chunk
 
@@ -23,6 +23,9 @@ class RetrievalFilters:
     groups: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
     product_version: str | None = None
+    version_mode: Literal["none", "explicit", "auto"] | None = None
+    version_selector: Literal["exact", "latest", "all"] = "exact"
+    scopes: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "document_ids", tuple(self.document_ids))
@@ -78,6 +81,33 @@ class Citation:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "section_path", tuple(self.section_path))
+
+    @property
+    def product_version(self) -> str:
+        return self.version
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeResult:
+    filters: RetrievalFilters
+    status: Literal["resolved", "ambiguous"] = "resolved"
+    versions: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class StageTrace:
+    stage: str
+    candidates: tuple[dict[str, Any], ...]
+    elapsed_ms: float
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalResult:
+    matches: tuple[ScoredChunk, ...]
+    scope: ScopeResult
+    trace_id: str
+    stages: tuple[StageTrace, ...]
 
 
 __all__ = ["Citation", "RetrievalFilters", "ScoredChunk"]

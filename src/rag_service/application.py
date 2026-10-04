@@ -26,6 +26,9 @@ class PreparedQuery:
 
     request: GenerationRequest
     matches: tuple[ScoredChunk, ...]
+    trace_id: str | None = None
+    scope_status: str = "resolved"
+    scope_versions: tuple[str, ...] = ()
 
 
 class RagApplication:
@@ -72,7 +75,7 @@ class RagApplication:
         alpha: float,
         filters: RetrievalFilters | None = None,
     ) -> PreparedQuery:
-        matches = await self.retriever.retrieve(
+        result = await self.retriever.retrieve_detailed(
             query,
             top_k=top_k,
             candidate_k=candidate_k,
@@ -81,10 +84,16 @@ class RagApplication:
         )
         request = GenerationRequest(
             query=query,
-            matches=matches,
+            matches=result.matches,
             max_context_chars=self.max_context_chars,
         )
-        return PreparedQuery(request=request, matches=matches)
+        return PreparedQuery(
+            request=request,
+            matches=result.matches,
+            trace_id=result.trace_id,
+            scope_status=result.scope.status,
+            scope_versions=result.scope.versions,
+        )
 
     async def answer(
         self,

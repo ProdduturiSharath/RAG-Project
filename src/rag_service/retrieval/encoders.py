@@ -13,13 +13,23 @@ import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-_/][a-z0-9]+)*", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"[a-z0-9]+(?:[-_/.][a-z0-9]+)*(?:\(\d+\))?", re.IGNORECASE)
 
 
 def tokenize(text: str) -> tuple[str, ...]:
-    """Tokenize while keeping identifiers such as ``SKU-994X`` intact."""
+    """Keep complete identifiers and emit searchable component tokens.
 
-    return tuple(match.group(0).lower() for match in _TOKEN_RE.finditer(text))
+    The complete token preserves exact matches while components make names such
+    as ``max_wal_senders``, ``pg.stat.activity``, and ``AC-2(1)`` searchable
+    when a source and query use different punctuation.
+    """
+
+    values: list[str] = []
+    for match in _TOKEN_RE.finditer(text):
+        token = match.group(0).lower()
+        values.append(token)
+        values.extend(part for part in re.split(r"[-_/.()]+", token) if part)
+    return tuple(values)
 
 
 def _stable_bucket(value: str, dimensions: int) -> tuple[int, int]:
@@ -45,6 +55,9 @@ class HashEmbeddingEncoder:
 
     def embed(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         return tuple(self._embed_one(text) for text in texts)
+
+    def embed_query(self, query: str) -> tuple[float, ...]:
+        return self.embed((query,))[0]
 
     def _embed_one(self, text: str) -> tuple[float, ...]:
         vector = [0.0] * self.dimensions

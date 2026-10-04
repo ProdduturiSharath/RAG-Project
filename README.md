@@ -7,8 +7,8 @@ split into two halves:
 1. **Ingestion and indexing** turns parsed source sections into stable,
    structure-aware chunks and writes dense and sparse representations through
    small adapter ports.
-2. **Async retrieval and answering** runs hybrid search, second-stage
-   reranking, ACL filtering, and grounded answer generation behind FastAPI.
+2. **Async retrieval and answering** runs scoped hybrid search, second-stage
+   reranking, parent expansion, ACL filtering, and grounded answer generation.
 
 This first vertical slice runs locally without a provider key. Its hashing
 encoder, in-memory index, and extractive answerer are honest development
@@ -20,8 +20,11 @@ interfaces testable before Pinecone and a hosted LLM are connected.
 - Stable document/version/content-hash identities for idempotent ingestion.
 - Markdown-aware and section-aware recursive-style chunking with overlap.
 - Page, section-path, parent/child, and source metadata on every chunk.
-- Dense plus BM25-style sparse vectors behind replaceable ports.
-- Candidate retrieval followed by an explainable exact-token reranker.
+- BGE-small dense embeddings, Postgres full-text search, and a true BM25 baseline.
+- RRF or normalized weighted fusion followed by a configurable cross-encoder;
+  token overlap remains an explainable baseline.
+- Deterministic none, explicit, and auto product-version scope with ambiguity
+  reporting and per-stage query traces.
 - Document-level principal/group ACL checks before ranking results.
 - A strict evidence prompt builder and an abstaining local answerer.
 - JSON query responses with score components and citations.
@@ -98,8 +101,8 @@ the API handlers:
 
 1. Add a Pinecone hybrid index adapter and a durable document/job store.
 2. Add a real embedding provider plus a corpus-fitted sparse encoder.
-3. Replace the transparent reranker with a cross-encoder and add MMR/context
-   expansion.
+3. Evaluate the Phase 2 cross-encoder and parent/context expansion on the
+   Phase 3 benchmark.
 4. Add OCR/table extraction and Confluence ingestion workers.
 5. Add a provider-backed streaming generator, OpenTelemetry traces, and a
    retrieval evaluation set covering identifiers, tables, multi-hop questions,

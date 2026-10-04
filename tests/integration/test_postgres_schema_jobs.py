@@ -30,7 +30,7 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(
             [row["version"] for row in applied_after],
-            ["001_initial", "002_revision_payloads"],
+            ["001_initial", "002_revision_payloads", "003_retrieval_indexes"],
         )
         self.assertTrue(all(row["checksum"] for row in applied_after))
 
@@ -59,7 +59,13 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
                 ),
             ).fetchall()
             indexes = connection.execute(
-                "SELECT indexname FROM pg_indexes WHERE indexname = 'document_versions_one_active'"
+                "SELECT indexname FROM pg_indexes WHERE indexname = ANY(%s)",
+                ([
+                    "document_versions_one_active",
+                    "chunks_search_vector_gin",
+                    "chunks_identifier_vector_gin",
+                    "embeddings_hnsw_384_cosine",
+                ],),
             ).fetchall()
             settings = connection.execute(
                 """
@@ -83,7 +89,15 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
                 "query_traces",
             },
         )
-        self.assertEqual(len(indexes), 1)
+        self.assertEqual(
+            {row["indexname"] for row in indexes},
+            {
+                "document_versions_one_active",
+                "chunks_search_vector_gin",
+                "chunks_identifier_vector_gin",
+                "embeddings_hnsw_384_cosine",
+            },
+        )
         self.assertEqual(
             {row["name"] for row in settings},
             {"hnsw.iterative_scan", "ivfflat.iterative_scan"},

@@ -103,3 +103,18 @@ Sources consulted:
 - <https://raw.githubusercontent.com/pgvector/pgvector/master/README.md>
 - <https://github.com/pgvector/pgvector/releases>
 - <https://www.postgresql.org/docs/current/gin.html>
+
+## Phase 2 retrieval verification
+
+- The rebuilt local environment is Python 3.12.15 with `torch==2.14.1+cpu` and
+  `sentence-transformers==6.1.0`; BGE-small produced 384-dimensional normalized
+  embeddings and `cross-encoder/ms-marco-MiniLM-L6-v2` produced a reranking score.
+- BGE small and base model cards identify the released models as MIT licensed:
+  <https://huggingface.co/BAAI/bge-small-en-v1.5> and
+  <https://huggingface.co/BAAI/bge-base-en-v1.5>.
+- The configurable cross-encoder is Apache-2.0 licensed:
+  <https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2>.
+- The exact pgvector 0.8.7 README checked for HNSW, GIN/full-text hybrid search,
+  and iterative scans is <https://raw.githubusercontent.com/pgvector/pgvector/v0.8.7/README.md>.
+- Phase 2 uses the verified 384-dimension HNSW expression index, an identifier
+  GIN index, `hnsw.iterative_scan=strict_order`, and retains exact fallback search.

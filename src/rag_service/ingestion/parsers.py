@@ -79,7 +79,9 @@ class _HTMLSectionCollector(HTMLParser):
         self._special_kind: str | None = None
         self._special_parts: list[str] = []
         self._table_rows: list[list[str]] = []
+        self._table_headers: list[bool] = []
         self._table_row: list[str] | None = None
+        self._table_row_has_header = False
         self._table_cell: list[str] | None = None
         self._table_depth = 0
         self._ignored_table_depth = 0
@@ -91,8 +93,10 @@ class _HTMLSectionCollector(HTMLParser):
                 self._table_depth += 1
             elif tag == "tr":
                 self._table_row = []
+                self._table_row_has_header = False
             elif tag in {"td", "th"}:
                 self._table_cell = []
+                self._table_row_has_header = self._table_row_has_header or tag == "th"
             return
         if self._special_kind == "ignored_table":
             if tag == "table":
@@ -134,6 +138,7 @@ class _HTMLSectionCollector(HTMLParser):
                 self._table_cell = None
             elif tag == "tr" and self._table_row:
                 self._table_rows.append(self._table_row)
+                self._table_headers.append(self._table_row_has_header)
                 self._table_row = None
             elif tag == "table":
                 self._table_depth -= 1
@@ -201,14 +206,13 @@ class _HTMLSectionCollector(HTMLParser):
         if rows:
             width = max(len(row) for row in rows)
             normalized = [row + [""] * (width - len(row)) for row in rows]
-            markdown = [
-                "| " + " | ".join(normalized[0]) + " |",
-                "| " + " | ".join("---" for _ in range(width)) + " |",
-            ]
-            markdown.extend("| " + " | ".join(row) + " |" for row in normalized[1:])
+            markdown = ["| " + " | ".join(row) + " |" for row in normalized]
+            if self._table_headers and self._table_headers[0]:
+                markdown.insert(1, "| " + " | ".join("---" for _ in range(width)) + " |")
             self.sections.append(DocumentSection(text="\n".join(markdown), kind="table"))
         self._special_kind = None
         self._table_rows.clear()
+        self._table_headers.clear()
         self._table_row = None
         self._table_cell = None
 
