@@ -1,41 +1,34 @@
 {
-  "candidate_counts_dev_test": {
-    "acl": 15,
-    "exact_identifier": 40,
-    "factoid": 30,
-    "multi_hop": 10,
-    "table": 20,
-    "unanswerable": 15,
-    "unchanged_control": 20,
-    "version_specific": 40,
-    "version_unavailable": 8
-  },
-  "candidate_total": 198,
+  "blind_pool_unchanged": true,
   "diffs": {
     "change_kinds": {
-      "changed_default": 15,
-      "parameter_added": 122,
-      "parameter_removed": 51,
-      "parameter_renamed": 5,
-      "table_row_added": 3,
-      "table_row_removed": 3,
-      "text_changed": 521
+      "changed_default": 3,
+      "parameter_added": 182,
+      "parameter_removed": 90,
+      "parameter_renamed": 9,
+      "table_row_added": 262,
+      "table_row_removed": 186,
+      "text_changed": 546
     },
-    "diff_records": 599,
-    "lineages_changed": 599,
-    "lineages_matched": 10344,
-    "lineages_total": 11909
+    "diff_records": 732,
+    "lineages_changed": 732,
+    "lineages_matched": 11365,
+    "lineages_total": 12581
   },
+  "new_lineages": 1334,
+  "preserved_surviving_assignments": 11247,
+  "retained_retired_blind": 62,
+  "retired_lineages": 662,
   "source_records_per_version": {
-    "pg-15": 7332,
-    "pg-16": 7417,
-    "pg-17": 7504
+    "pg-15": 7893,
+    "pg-16": 7984,
+    "pg-17": 8069
   },
   "split_counts": {
     "blind": 1215,
-    "dev": 3557,
-    "test": 3572,
-    "train": 3565
+    "dev": 3808,
+    "test": 3806,
+    "train": 3814
   },
   "validation_source_records": 1351
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build splits, diffs, and the deterministic generated candidate pool."""
+"""Refresh diffs/splits from local corrected SGML; never generate questions."""
 
 from __future__ import annotations
 
@@ -8,85 +8,73 @@ import json
 from collections import Counter
 from pathlib import Path
 
-import yaml
-
-from rag_service.benchmark.corpus import load_source_records, write_source_records
-from rag_service.benchmark.dataset import (
-    build_split_assignments,
-    generate_candidates,
-    write_jsonl,
+from rag_service.benchmark.corpus import (
+    load_source_records,
+    parse_postgresql_source,
+    write_source_records,
 )
+from rag_service.benchmark.dataset import build_split_assignments, write_jsonl
 from rag_service.benchmark.diffs import build_diffs
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=Path, default=Path("data/eval/source_sections.jsonl"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--processed-dir", type=Path, default=Path("data/processed/postgresql"))
+    parser.add_argument("--full-source", type=Path,
+                        default=Path("data/processed/source_sections.full.jsonl"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/eval"))
-    parser.add_argument("--acl-config", type=Path, default=Path("data/acl_demo.yaml"))
+    parser.add_argument("--diffs-only", action="store_true")
     args = parser.parse_args()
-    records = load_source_records(args.source)
-    assignments = build_split_assignments(records)
-    diffs, diff_stats = build_diffs(records)
-    acl_config = yaml.safe_load(args.acl_config.read_text(encoding="utf-8"))
-    candidates = generate_candidates(records, diffs, assignments, acl_config)
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    needed = {
-        (str(span["lineage_key"]), str(span["version"]))
-        for row in candidates
-        for span in row["evidence_spans"]
+    if args.diffs_only:
+        records = load_source_records(args.full_source)
+        diffs, diff_stats = build_diffs(records)
+        write_jsonl(diffs, args.output_dir / "diffs.jsonl")
+        stats_path = args.output_dir / "benchmark_stats.json"
+        stats = json.loads(stats_path.read_text())
+        stats["diffs"] = diff_stats
+        stats_path.write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
+        print(json.dumps(diff_stats, indent=2, sort_keys=True))
+        return 0
+    records = []
+    for version in ("pg-15", "pg-16", "pg-17"):
+        records.extend(parse_postgresql_source(args.processed_dir / version, version))
+    if not records:
+        raise RuntimeError("No local corpus; do not refresh empty sources")
+    split_path = args.output_dir / "splits.json"
+    previous = json.loads(split_path.read_text()) if split_path.exists() else {}
+    assignments = build_split_assignments(records, previous.get("assignments"))
+    blind = sorted(key for key, split in assignments.items() if split == "blind")
+    if previous and blind != previous["blind_pool"]:
+        raise RuntimeError("Blind pool changed")
+    write_source_records(records, args.full_source)
+    # Leave committed blind passages intact. Importing drafts adds exact full
+    # source records to this compact, CI-readable evidence artifact.
+    source_path = args.output_dir / "source_sections.jsonl"
+    if not source_path.exists():
+        write_source_records([r for r in records if r.lineage_key in blind], source_path)
+    splits = {
+        "assignments": assignments,
+        "splits": {split: sorted(k for k, v in assignments.items() if v == split)
+                   for split in ("train", "dev", "test", "blind")},
+        "counts": dict(Counter(assignments.values())), "blind_pool": blind,
     }
-    blind_seen: set[str] = set()
-    compact_records = []
-    for record in records:
-        key = (record.lineage_key, record.version)
-        if key in needed:
-            compact_records.append(record)
-        elif (
-            assignments.get(record.lineage_key) == "blind"
-            and record.lineage_key not in blind_seen
-        ):
-            compact_records.append(record)
-            blind_seen.add(record.lineage_key)
-    # Keep only evidence and one owner-visible section per blind lineage in the
-    # committed artifact; the ignored extracted source is the full corpus.
-    write_source_records(compact_records, args.source)
-    (args.output_dir / "splits.json").write_text(
-        json.dumps(
-            {
-                "assignments": assignments,
-                "splits": {
-                    split: sorted(
-                        lineage for lineage, value in assignments.items() if value == split
-                    )
-                    for split in ("train", "dev", "test", "blind")
-                },
-                "counts": dict(Counter(assignments.values())),
-                "blind_pool": sorted(
-                    lineage for lineage, split in assignments.items() if split == "blind"
-                ),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
+    split_path.write_text(json.dumps(splits, indent=2, sort_keys=True) + "\n")
+    diffs, diff_stats = build_diffs(records)
     write_jsonl(diffs, args.output_dir / "diffs.jsonl")
-    write_jsonl(candidates, args.output_dir / "candidates.jsonl")
+    current = {r.lineage_key for r in records}
+    old = previous.get("assignments", {})
     stats = {
-        "source_records_per_version": dict(Counter(record.version for record in records)),
-        "validation_source_records": len(compact_records),
-        "split_counts": dict(Counter(assignments.values())),
-        "candidate_counts_dev_test": dict(
-            Counter(row["type"] for row in candidates if row["split"] in {"dev", "test"})
-        ),
-        "candidate_total": len(candidates),
-        "diffs": diff_stats,
+        "source_records_per_version": dict(Counter(r.version for r in records)),
+        "split_counts": splits["counts"], "diffs": diff_stats,
+        "preserved_surviving_assignments": len(current & old.keys()),
+        "new_lineages": len(current - old.keys()),
+        "retired_lineages": len(old.keys() - current),
+        "retained_retired_blind": len(set(blind) - current),
+        "blind_pool_unchanged": blind == previous.get("blind_pool", blind),
+        "validation_source_records": len(load_source_records(source_path)),
     }
     (args.output_dir / "benchmark_stats.json").write_text(
-        json.dumps(stats, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+        json.dumps(stats, indent=2, sort_keys=True) + "\n")
     print(json.dumps(stats, indent=2, sort_keys=True))
     return 0
 

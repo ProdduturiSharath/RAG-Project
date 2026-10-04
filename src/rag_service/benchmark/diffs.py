@@ -18,6 +18,9 @@ _DEFAULT_RE = re.compile(
     re.I,
 )
 _PARAMETER_HINTS = ("_", ".", "pg_", "wal", "work_mem", "shared_", "max_")
+_SETTING_RE = re.compile(
+    r"\b([a-z][a-z0-9_]+)\s+\(\s*(?:integer|boolean|enum|string|floating point)\s*\)"
+)
 
 
 def _group(records: list[SourceRecord]) -> dict[str, dict[str, list[SourceRecord]]]:
@@ -58,18 +61,23 @@ def _default_changes(before: str, after: str) -> list[dict[str, str]]:
     def values(text: str) -> dict[str, str]:
         found: dict[str, str] = {}
         for match in _DEFAULT_RE.finditer(text):
-            context = _IDENTIFIER_RE.findall(text[max(0, match.start() - 100):match.start()])
+            headings = list(_SETTING_RE.finditer(text[:match.start()]))
+            if headings:
+                found[headings[-1].group(1)] = match.group(1).rstrip(".")
+                continue
+            context = _IDENTIFIER_RE.findall(text[:match.start()])
             names = [
                 value for value in context
                 if any(hint in value.lower() for hint in _PARAMETER_HINTS)
             ]
-            found[names[-1] if names else "default"] = match.group(1).strip()
+            if names:
+                found[names[-1]] = match.group(1).rstrip(".")
         return found
 
     old = values(before)
     new = values(after)
     changes: list[dict[str, str]] = []
-    for key in sorted(set(old) | set(new)):
+    for key in sorted(set(old) & set(new)):
         if old.get(key) != new.get(key):
             changes.append(
                 {
@@ -126,7 +134,7 @@ def _parameter_changes(before: str, after: str) -> list[dict[str, str]]:
 
 
 def _contextual_identifiers(text: str) -> set[str]:
-    values: set[str] = set()
+    values: set[str] = set(_SETTING_RE.findall(text))
     context_words = (
         "parameter",
         "setting",

@@ -16,7 +16,10 @@
     "lineage_key",
     "split",
     "author",
-    "validated"
+    "validated",
+    "drafted_by",
+    "paraphrased",
+    "version_independent"
   ],
   "properties": {
     "id": {"type": "string", "minLength": 1},
@@ -43,6 +46,14 @@
     "lineage_key": {"type": "string", "minLength": 1},
     "split": {"enum": ["train", "dev", "test", "blind"]},
     "author": {"type": "string", "minLength": 1},
-    "validated": {"type": "boolean"}
-  }
+    "validated": {"type": "boolean"},
+    "drafted_by": {"type": "string", "minLength": 1},
+    "paraphrased": {"type": "boolean"},
+    "version_independent": {"type": "boolean"},
+    "evidence_quote": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
+  },
+  "allOf": [{
+    "if": {"properties": {"author": {"const": "llm_drafted"}}},
+    "then": {"properties": {"validated": {"const": false}, "split": {"enum": ["dev", "test"]}}}
+  }]
 }

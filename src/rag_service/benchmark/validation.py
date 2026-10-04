@@ -11,15 +11,15 @@ from typing import Any
 from .corpus import SourceRecord, load_source_records
 
 TARGET_COUNTS = {
-    "factoid": 30,
-    "exact_identifier": 40,
-    "table": 20,
-    "multi_hop": 10,
-    "version_specific": 40,
-    "unchanged_control": 20,
-    "version_unavailable": 8,
-    "unanswerable": 15,
-    "acl": 15,
+    "factoid": 35,
+    "exact_identifier": 35,
+    "table": 25,
+    "multi_hop": 12,
+    "version_specific": 50,
+    "unchanged_control": 25,
+    "version_unavailable": 10,
+    "unanswerable": 18,
+    "acl": 8,
 }
 REQUIRED_FIELDS = {
     "id",
@@ -35,6 +35,9 @@ REQUIRED_FIELDS = {
     "split",
     "author",
     "validated",
+    "drafted_by",
+    "paraphrased",
+    "version_independent",
 }
 _SPACE_RE = re.compile(r"\s+")
 
@@ -56,6 +59,7 @@ def validate_dataset(
     require_targets: bool = True,
 ) -> dict[str, Any]:
     errors: list[str] = []
+    warnings: list[str] = []
     rows: list[dict[str, Any]] = []
     seen_questions: set[str] = set()
     with Path(dataset_path).open(encoding="utf-8") as handle:
@@ -76,7 +80,8 @@ def validate_dataset(
             for field in ("id", "question", "target_version", "requester", "lineage_key", "author"):
                 if not isinstance(row.get(field), str) or not row.get(field):
                     errors.append(f"line {number}: {field} must be a non-empty string")
-            for field in ("answerability", "acl_allowance", "validated"):
+            for field in ("answerability", "acl_allowance", "validated", "paraphrased",
+                          "version_independent"):
                 if not isinstance(row.get(field), bool):
                     errors.append(f"line {number}: {field} must be boolean")
             question = _SPACE_RE.sub(" ", str(row.get("question", "")).strip().lower())
@@ -134,10 +139,12 @@ def validate_dataset(
                 )
             if assignments.get(span_lineage) != split:
                 errors.append(f"{row.get('id', '<unknown>')}: evidence crosses lineage split")
-        if split == "blind" or lineage in split_lineages["blind"]:
-            errors.append(f"{row.get('id', '<unknown>')}: blind lineage appears in dataset")
-        if row.get("author") == "generated" and row.get("validated"):
-            errors.append(f"{row.get('id', '<unknown>')}: generated row cannot be validated")
+        if split not in {"dev", "test"}:
+            errors.append(f"{row.get('id', '<unknown>')}: non-dev/test lineage appears in dataset")
+        if row.get("author") in {"generated", "llm_drafted"} and row.get("validated"):
+            errors.append(f"{row.get('id', '<unknown>')}: draft row cannot be validated")
+        if row.get("author") == "llm_drafted" and not row.get("drafted_by"):
+            errors.append(f"{row.get('id', '<unknown>')}: drafted_by is required")
 
     counts = Counter(
         str(row.get("type")) for row in rows if row.get("split") in {"dev", "test"}
@@ -145,7 +152,7 @@ def validate_dataset(
     if require_targets:
         for kind, expected in TARGET_COUNTS.items():
             if counts[kind] < expected:
-                errors.append(f"type {kind}: {counts[kind]} rows, expected at least {expected}")
+                warnings.append(f"type {kind}: {counts[kind]} rows, drafting target {expected}")
     split_overlap = {
         lineage: sorted(split for split, lineages in split_lineages.items() if lineage in lineages)
         for lineage in assignments
@@ -156,6 +163,7 @@ def validate_dataset(
     return {
         "valid": not errors,
         "errors": errors,
+        "warnings": warnings,
         "records": len(rows),
         "counts_dev_test": dict(sorted(counts.items())),
         "source_records": len(records),

@@ -30,6 +30,17 @@ def test_lineage_split_assignment_is_deterministic_and_single_valued() -> None:
     assert len(set(first.values())) == 1
 
 
+def test_lineage_refresh_preserves_assignments_and_blind_pool() -> None:
+    previous = {"lineage-a": "test", "retired-blind": "blind", "retired": "dev"}
+    records = [record("pg-15", "lineage-a", "changed"), record("pg-17", "new", "new")]
+    result = build_split_assignments(records, previous)
+    assert result == build_split_assignments(list(reversed(records)), previous)
+    assert result["lineage-a"] == "test"
+    assert {k for k, v in result.items() if v == "blind"} == {"retired-blind"}
+    assert result["new"] in {"train", "dev", "test"}
+    assert "retired" not in result
+
+
 def test_diff_miner_emits_both_sides_for_default_and_table_changes() -> None:
     rows = (
         ("parameter", "old"),
