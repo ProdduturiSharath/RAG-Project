@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence RAG Phase 3 question",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "id",
+    "question",
+    "type",
+    "expected_answer",
+    "evidence_spans",
+    "target_version",
+    "answerability",
+    "requester",
+    "acl_allowance",
+    "lineage_key",
+    "split",
+    "author",
+    "validated"
+  ],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "question": {"type": "string", "minLength": 1},
+    "type": {
+      "enum": [
+        "factoid",
+        "exact_identifier",
+        "table",
+        "multi_hop",
+        "version_specific",
+        "unchanged_control",
+        "version_unavailable",
+        "unanswerable",
+        "acl"
+      ]
+    },
+    "expected_answer": {"type": "string"},
+    "evidence_spans": {"type": "array", "items": {"type": "object"}},
+    "target_version": {"type": "string", "minLength": 1},
+    "answerability": {"type": "boolean"},
+    "requester": {"type": "string", "minLength": 1},
+    "acl_allowance": {"type": "boolean"},
+    "lineage_key": {"type": "string", "minLength": 1},
+    "split": {"enum": ["train", "dev", "test", "blind"]},
+    "author": {"type": "string", "minLength": 1},
+    "validated": {"type": "boolean"}
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "chunker": {
+    "max_tokens": 220,
+    "overlap_tokens": 35
+  },
+  "embedder": "bge-small-en-v1.5 (database ingestion script)",
+  "embedding_seconds": null,
+  "embedding_status": "requires RAG_EVAL_DATABASE_URL and scripts/ingest_postgres_docs.py",
+  "pg-15": {
+    "chunks": 10013,
+    "code_chunks": 3708,
+    "documents": 1,
+    "sections": 7332,
+    "table_chunks": 13
+  },
+  "pg-16": {
+    "chunks": 10144,
+    "code_chunks": 3760,
+    "documents": 1,
+    "sections": 7417,
+    "table_chunks": 14
+  },
+  "pg-17": {
+    "chunks": 10263,
+    "code_chunks": 3824,
+    "documents": 1,
+    "sections": 7504,
+    "table_chunks": 14
+  }
+}
