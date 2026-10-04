@@ -181,6 +181,19 @@ class _SgmlCollector(HTMLParser):
         current = self._current
         if current is None:
             return
+        if tag == "title" and current.title_depth:
+            current.title_depth -= 1
+            if current.title_depth == 0:
+                title = _clean("".join(current.title_parts))
+                if title:
+                    old_path = current.path
+                    current.title = title
+                    current.path = old_path[:-1] + (title,)
+                    if len(self._stack) > 1:
+                        for node in self._stack[:-1]:
+                            if node.path and node.path[-1] == old_path[-1]:
+                                node.path = node.path[:-1] + (node.title,)
+            return
         if self._capture == "table" and current is self._capture_node:
             if tag in {"td", "th", "entry"} and self._table_cell is not None:
                 self._table_row = self._table_row or []
@@ -208,18 +221,6 @@ class _SgmlCollector(HTMLParser):
             self._capture_node = None
             self._capture_parts = []
             return
-        if current is not None and tag == "title" and current.title_depth:
-            current.title_depth -= 1
-            if current.title_depth == 0:
-                title = _clean("".join(current.title_parts))
-                if title:
-                    old_path = current.path
-                    current.title = title
-                    current.path = old_path[:-1] + (title,)
-                    if len(self._stack) > 1:
-                        for node in self._stack[:-1]:
-                            if node.path and node.path[-1] == old_path[-1]:
-                                node.path = node.path[:-1] + (node.title,)
         if tag in _SECTION_TAGS and current is not None and current.tag == tag:
             self._finish_node()
 

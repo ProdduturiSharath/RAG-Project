@@ -50,6 +50,20 @@ def _require_evaluation_database(url: str) -> None:
         )
 
 
+def _existing_embedding_count(
+    store: PostgresVersionedStore, content_hashes: set[str]
+) -> int:
+    if not content_hashes:
+        return 0
+    with store.database.connect() as conn:
+        row = conn.execute(
+            """SELECT count(*) AS count FROM embeddings
+               WHERE embedder_id=%s AND content_hash=ANY(%s)""",
+            (store.embedder_id, sorted(content_hashes)),
+        ).fetchone()
+    return int(row["count"]) if row else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=Path("data/eval/source_sections.jsonl"))
@@ -92,7 +106,10 @@ def main() -> int:
                 text=record.text,
                 heading=record.title,
                 section_path=record.section_path,
-                section_id=record.section_id,
+                # Block records share a document section ID, while their
+                # lineage suffix (#codeN/#tableN) distinguishes repeated
+                # source blocks with identical text for storage keys.
+                section_id=record.lineage_key,
                 lineage_key=record.lineage_key,
                 kind=record.kind,
                 source=SourceLocation(
@@ -102,6 +119,13 @@ def main() -> int:
             )
             for record in version_records
         ]
+        prepared_chunks = store.chunker.chunk(
+            sections, document_id="postgresql-documentation", version=version
+        )
+        content_hashes = {
+            chunk.content_hash for chunk in prepared_chunks if chunk.content_hash
+        }
+        reused_embeddings = _existing_embedding_count(store, content_hashes)
         result = store.ingest(
             DocumentIdentity(
                 "postgresql-documentation",
@@ -118,6 +142,9 @@ def main() -> int:
             "documents": 1,
             "sections": len(version_records),
             "chunks": result.chunk_count,
+            "unique_embeddings": len(content_hashes),
+            "embeddings_reused": reused_embeddings,
+            "embeddings_computed": len(content_hashes) - reused_embeddings,
             "table_chunks": sum(chunk.kind == "table" for chunk in result.chunks),
             "code_chunks": sum(chunk.kind == "code" for chunk in result.chunks),
             "embedding_seconds": round(elapsed, 3),

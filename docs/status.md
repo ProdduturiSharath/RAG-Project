@@ -125,3 +125,26 @@ it does not invent a retrieval metric.
   documentation; it produced 125 sections, 2 table chunks, and 2 code chunks.
 
 Phase 2 implementation is complete on `phase-2-retrieval-pipeline`; final verification and PR are recorded in `docs/phase-2-report.md`.
+
+## Phase 3 Postgres follow-up — 2026-10-04
+
+- Postgres container `evidence-rag-postgres-1` was healthy; API and worker were
+  intentionally left stopped. The separate `evidence_rag_eval` database was
+  created and used for corpus ingestion.
+- The table audit found 460 literal SGML table elements containing cells in
+  PostgreSQL 15 and 459 parser table records/chunks. The one literal omission
+  is an XSLT/HTML table inside `func.sgml` line 15106 within a code example,
+  not a documentation table. The parser previously lost titled real tables;
+  title-state handling was fixed and covered by a real SGML-table test.
+- `scripts/corpus_metrics.py` now reports: pg-15 `7893 sections / 10741
+  chunks / 459 tables / 3822 code`; pg-16 `7984 / 10877 / 467 / 3873`; pg-17
+  `8069 / 10997 / 463 / 3939`.
+- Eval ingestion used `bge-small-en-v1.5`: pg-15 computed 10,653 and reused
+  0 embeddings in 1,135.776 seconds; pg-16 computed 1,431 and reused 9,356
+  in 187.740 seconds; pg-17 computed 1,457 and reused 9,447 in 197.899
+  seconds. Total embedding time was 1,521.415 seconds; artifact:
+  `data/eval/ingestion_metrics.json`.
+- Full suite with the disposable test database: `48 passed in 48.06s`.
+  The earlier 16 skips were the 4 Postgres retrieval tests, 3 schema/job
+  tests, 4 revision-atomicity tests, and 5 versioned-storage contract tests;
+  all now pass. PR #4 remains open; unit and integration CI both pass.

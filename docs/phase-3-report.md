@@ -189,3 +189,20 @@ lineage appear in two persisted split lists and verifies that validation fails.
 No Phase 3 abstraction was identified for removal. The parser, diff miner,
 dataset builder, validator, and CLI are separate because each has an offline
 artifact and a focused testable responsibility.
+
+## Postgres follow-up — 2026-10-04
+
+The healthy Postgres container allowed the separate `evidence_rag_eval` load to
+complete. The table audit found 460 literal PG15 SGML table elements containing
+cells and 459 parser table records/chunks. The sole literal omission is an
+XSLT/HTML table inside `func.sgml:15106`, within a code example; no real manual
+table was lost. Titled real tables are now covered by a regression test.
+
+The new corpus metrics are pg-15 `7893 sections / 10741 chunks / 459 tables /
+3822 code`, pg-16 `7984 / 10877 / 467 / 3873`, and pg-17 `8069 / 10997 / 463 /
+3939`. Ingestion computed/reused embeddings respectively as 10,653/0,
+1,431/9,356, and 1,457/9,447; per-version embedding times were 1,135.776s,
+187.740s, and 197.899s, for 1,521.415s total. The artifact is
+`data/eval/ingestion_metrics.json`.
+
+The existing generated-question artifacts were not regenerated in this follow-up.

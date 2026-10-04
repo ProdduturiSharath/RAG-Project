@@ -1,0 +1,38 @@
+{
+  "database": "evidence_rag_eval",
+  "embedder": "bge-small-en-v1.5",
+  "pg-15": {
+    "chunks": 10741,
+    "code_chunks": 3822,
+    "documents": 1,
+    "embedding_seconds": 1135.776,
+    "embeddings_computed": 10653,
+    "embeddings_reused": 0,
+    "sections": 7893,
+    "table_chunks": 459,
+    "unique_embeddings": 10653
+  },
+  "pg-16": {
+    "chunks": 10877,
+    "code_chunks": 3873,
+    "documents": 1,
+    "embedding_seconds": 187.74,
+    "embeddings_computed": 1431,
+    "embeddings_reused": 9356,
+    "sections": 7984,
+    "table_chunks": 467,
+    "unique_embeddings": 10787
+  },
+  "pg-17": {
+    "chunks": 10997,
+    "code_chunks": 3939,
+    "documents": 1,
+    "embedding_seconds": 197.899,
+    "embeddings_computed": 1457,
+    "embeddings_reused": 9447,
+    "sections": 8069,
+    "table_chunks": 463,
+    "unique_embeddings": 10904
+  },
+  "total_embedding_seconds": 1521.415
+}

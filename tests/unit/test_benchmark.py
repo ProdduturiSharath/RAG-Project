@@ -80,6 +80,24 @@ def test_sgml_parser_preserves_code_and_table_evidence() -> None:
     assert any(item.table_rows for item in parsed if item.kind == "table")
 
 
+def test_sgml_parser_preserves_real_postgresql_table_with_title() -> None:
+    with TemporaryDirectory() as directory:
+        root = Path(directory) / "doc" / "src" / "sgml"
+        root.mkdir(parents=True)
+        (root / "manual.sgml").write_text(
+            '<sect1 id="config"><title>Configuration</title>'
+            '<table id="settings"><title>Settings</title><tgroup cols="2">'
+            '<thead><row><entry>Name</entry><entry>Value</entry></row></thead>'
+            '<tbody><row><entry>work_mem</entry><entry>8MB</entry></row></tbody>'
+            '</tgroup></table></sect1>',
+            encoding="utf-8",
+        )
+        parsed = parse_postgresql_source(Path(directory), "pg-15")
+    tables = [item for item in parsed if item.kind == "table"]
+    assert len(tables) == 1
+    assert tables[0].table_rows == (("Name", "Value"), ("work_mem", "8MB"))
+
+
 def test_validator_rejects_lineage_list_overlap() -> None:
     with TemporaryDirectory() as directory:
         root = Path(directory)

@@ -7,24 +7,24 @@
   "embedding_seconds": null,
   "embedding_status": "requires RAG_EVAL_DATABASE_URL and scripts/ingest_postgres_docs.py",
   "pg-15": {
-    "chunks": 10013,
-    "code_chunks": 3708,
+    "chunks": 10741,
+    "code_chunks": 3822,
     "documents": 1,
-    "sections": 7332,
-    "table_chunks": 13
+    "sections": 7893,
+    "table_chunks": 459
   },
   "pg-16": {
-    "chunks": 10144,
-    "code_chunks": 3760,
+    "chunks": 10877,
+    "code_chunks": 3873,
     "documents": 1,
-    "sections": 7417,
-    "table_chunks": 14
+    "sections": 7984,
+    "table_chunks": 467
   },
   "pg-17": {
-    "chunks": 10263,
-    "code_chunks": 3824,
+    "chunks": 10997,
+    "code_chunks": 3939,
     "documents": 1,
-    "sections": 7504,
-    "table_chunks": 14
+    "sections": 8069,
+    "table_chunks": 463
   }
 }
