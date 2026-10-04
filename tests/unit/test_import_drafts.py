@@ -34,6 +34,8 @@ def test_whitespace_match_preserves_exact_source_offsets() -> None:
     "What does the text say about memory?",
     "What does PostgreSQL documentation state?",
     "What is the default memory allocation? [variant 2]",
+    "What is the default value?",
+    "What can you tell me about it?",
 ])
 def test_rejects_meta_and_filler_questions(question: str) -> None:
     with pytest.raises(ValueError, match="passage/text/section|placeholder or vague"):
@@ -75,3 +77,11 @@ def test_batch_reports_duplicates_and_bad_quotes() -> None:
     assert report["discarded"] == 2
     assert {r["reason"] for r in report["reasons"]} == {
         "duplicate question", "quote absent from full source"}
+
+
+def test_rejects_changed_lineage_claimed_as_version_independent() -> None:
+    other = SourceRecord("pg-16", "setting", "setting", ("Settings",), "Settings",
+                         "The default is 8MB.", "text", "config.sgml", 10)
+    importer = DraftImporter([source(), other], {"setting": "dev"})
+    with pytest.raises(ValueError, match="version-independent source has changed"):
+        importer.accept(draft(), set())

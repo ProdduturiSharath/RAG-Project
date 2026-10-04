@@ -3,6 +3,14 @@
 Date: 2026-10-04 UTC
 Branch: `phase-3-corpus-benchmark`
 
+> **Current checkpoint (2026-10-04):** The historical generated pool described
+> below has been deleted and replaced with **149 manually drafted, unvalidated
+> candidates** in batches 001–006. Corrected corpus counts, refreshed splits and
+> diffs, per-type counts, the one rejected draft, remaining drafting work, and
+> final verification (**63 passed**) are recorded in the latest checkpoint in
+> [`status.md`](status.md). Rules: [`question-drafting-rules.md`](question-drafting-rules.md).
+> Current PR CI was not queried because external API calls are prohibited.
+
 ## 1. Implemented
 
 - Added `scripts/fetch_postgres_docs.py`, which politely downloads the official

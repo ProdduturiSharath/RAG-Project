@@ -1,0 +1,105 @@
+{
+  "accepted": 149,
+  "all_accepted_rechecked_against_full_corpus": true,
+  "batches": [
+    {
+      "accepted": 25,
+      "batch": "batch_001.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_002.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_003.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_004.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_005.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 24,
+      "batch": "batch_006.json",
+      "discarded": 1
+    }
+  ],
+  "blind_passages_unchanged": true,
+  "blind_pool_unchanged": true,
+  "by_type": {
+    "acl": {
+      "accepted": 8,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 8
+    },
+    "exact_identifier": {
+      "accepted": 35,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 35
+    },
+    "factoid": {
+      "accepted": 35,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 35
+    },
+    "multi_hop": {
+      "accepted": 2,
+      "discarded": 0,
+      "remaining": 10,
+      "target": 12
+    },
+    "table": {
+      "accepted": 25,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 25
+    },
+    "unanswerable": {
+      "accepted": 18,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 18
+    },
+    "unchanged_control": {
+      "accepted": 5,
+      "discarded": 0,
+      "remaining": 20,
+      "target": 25
+    },
+    "version_specific": {
+      "accepted": 12,
+      "discarded": 0,
+      "remaining": 38,
+      "target": 50
+    },
+    "version_unavailable": {
+      "accepted": 9,
+      "discarded": 1,
+      "remaining": 1,
+      "target": 10
+    }
+  },
+  "discarded": 1,
+  "paraphrased": {
+    "exact_identifier": 17,
+    "factoid": 17
+  },
+  "surviving_assignments_unchanged": true,
+  "target_versions": {
+    "pg-15": 50,
+    "pg-16": 45,
+    "pg-17": 54
+  }
+}

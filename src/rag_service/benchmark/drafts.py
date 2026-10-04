@@ -17,6 +17,10 @@ _FILLER = re.compile(
     r"what (?:does .* (?:say|state)|is (?:stated|mentioned|documented))\??$|"
     r"which (?:exact )?identifier is (?:named|shown)|what (?:row is listed|changed in)", re.I,
 )
+_VAGUE = re.compile(
+    r"^(?:what is (?:the (?:default )?value|it|this|that)|"
+    r"how does (?:it|this|that) work|what can you tell me about (?:it|this|that))\?$", re.I,
+)
 
 
 def normalized(text: str) -> str:
@@ -60,7 +64,8 @@ class DraftImporter:
             raise ValueError("duplicate question")
         if _META.search(question):
             raise ValueError("question refers to passage/text/section")
-        if _FILLER.search(question) or len(question.split()) < 5 or not question.endswith("?"):
+        if (_FILLER.search(question) or _VAGUE.search(question)
+                or len(question.split()) < 5 or not question.endswith("?")):
             raise ValueError("placeholder or vague question")
         kind = draft.get("type")
         if kind not in TARGET_COUNTS:

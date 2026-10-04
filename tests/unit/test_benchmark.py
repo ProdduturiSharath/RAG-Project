@@ -91,6 +91,20 @@ def test_sgml_parser_preserves_code_and_table_evidence() -> None:
     assert any(item.table_rows for item in parsed if item.kind == "table")
 
 
+def test_default_change_is_attached_to_setting_not_nearby_reference() -> None:
+    common = (
+        "vacuum_buffer_usage_limit ( integer ) Controls the buffer strategy. "
+        "If it exceeds 1/8 of shared_buffers it is capped. The default value is "
+    )
+    diffs, _ = build_diffs([
+        record("pg-16", "memory", common + "256 kB ."),
+        record("pg-17", "memory", common + "2MB ."),
+    ], ("pg-16", "pg-17"))
+    defaults = [c for c in diffs[0]["changes"] if c["kind"] == "changed_default"]
+    assert defaults == [{"kind": "changed_default", "name": "vacuum_buffer_usage_limit",
+                         "before": "256", "after": "2MB"}]
+
+
 def test_sgml_parser_preserves_real_postgresql_table_with_title() -> None:
     with TemporaryDirectory() as directory:
         root = Path(directory) / "doc" / "src" / "sgml"

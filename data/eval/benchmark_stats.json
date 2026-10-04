@@ -1,5 +1,17 @@
 {
   "blind_pool_unchanged": true,
+  "candidate_counts_dev_test": {
+    "acl": 8,
+    "exact_identifier": 35,
+    "factoid": 35,
+    "multi_hop": 2,
+    "table": 25,
+    "unanswerable": 18,
+    "unchanged_control": 5,
+    "version_specific": 12,
+    "version_unavailable": 9
+  },
+  "candidate_total": 149,
   "diffs": {
     "change_kinds": {
       "changed_default": 3,
@@ -30,5 +42,5 @@
     "test": 3806,
     "train": 3814
   },
-  "validation_source_records": 1351
+  "validation_source_records": 1253
 }

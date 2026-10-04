@@ -148,3 +148,128 @@ Phase 2 implementation is complete on `phase-2-retrieval-pipeline`; final verifi
   The earlier 16 skips were the 4 Postgres retrieval tests, 3 schema/job
   tests, 4 revision-atomicity tests, and 5 versioned-storage contract tests;
   all now pass. PR #4 remains open; unit and integration CI both pass.
+
+## Phase 3 manual drafting checkpoint — 2026-10-04
+
+This checkpoint supersedes the generated-candidate counts in the original
+Phase 3 report. Branch: `phase-3-corpus-benchmark`. PR #4 has not been merged;
+Phase 4 has not started. The NVIDIA API is dropped. No external API was called
+and `.env` was not read. Drafting rules are saved in
+`docs/question-drafting-rules.md`; read those before continuing.
+
+### Corrected corpus refresh
+
+- Source records: pg-15 **7,893**, pg-16 **7,984**, pg-17 **8,069**; total
+  **23,946**, spanning **12,581** current lineage keys.
+- Preserved **11,247** surviving assignments; assigned **1,334** new keys
+  deterministically without adding blind keys. Of **662** retired keys,
+  **62** retired blind keys remain reserved, keeping the original pool intact.
+- Persisted split counts: train **3,814**, dev **3,808**, test **3,806**,
+  blind **1,215** (12,643 assignments including the 62 retired blind keys).
+- Re-mined **732** changed lineage/version pairs from **11,365** adjacent-version
+  matches. Change counts: defaults **3**, parameter additions **182**, removals
+  **90**, rename hints **9**, table rows added **262**, removed **186**, other
+  text changes **546**. No questions were based on other text changes.
+- Fixed default-change attribution: a nearby `shared_buffers` reference no
+  longer steals `vacuum_buffer_usage_limit`'s default change.
+- The **3 lineage tests** passed during refresh. Final audit also compared
+  surviving assignments, the complete blind pool, and every saved blind passage
+  against pre-session commit `45a586d`: all unchanged.
+- Full corrected sources are local/ignored at
+  `data/processed/source_sections.full.jsonl`. The committed compact source
+  artifact contains **1,253** records, including the untouched blind passages.
+
+### Completed batches and counts
+
+All questions were written directly by `omnirush/gpt-6-astra` after reading
+eligible passages. No question generator, template, external model, retrieval
+code, or retrieval results were used for drafting. The old **198** generated
+candidates and their generator were removed.
+
+| Batch | Accepted | Discarded | Contents |
+| --- | ---: | ---: | --- |
+| `batch_001.json` | 25 | 0 | 12 version-specific, 5 controls, 8 unavailable |
+| `batch_002.json` | 25 | 0 | 8 factoid, 8 identifier, 5 table, 2 multi-hop, 2 ACL |
+| `batch_003.json` | 25 | 0 | 18 unanswerable, 6 ACL, 1 table |
+| `batch_004.json` | 25 | 0 | 13 factoid, 12 identifier |
+| `batch_005.json` | 25 | 0 | 14 factoid, 11 identifier |
+| `batch_006.json` | 24 | 1 | 19 table, 4 identifier, 1 unavailable |
+
+The rejected batch-006 row asked about `scram_iterations` in PostgreSQL 15:
+the identifier occurs in that version's full corpus, so it cannot pass the
+strict version-unavailable check. The raw draft remains in the batch for audit;
+it is absent from candidates. Each batch has a `.report.json` with reasons.
+
+| Type | Accepted | Discarded | Target | Remaining |
+| --- | ---: | ---: | ---: | ---: |
+| factoid | 35 | 0 | 35 | 0 |
+| exact_identifier | 35 | 0 | 35 | 0 |
+| table | 25 | 0 | 25 | 0 |
+| multi_hop | 2 | 0 | 12 | 10 |
+| unanswerable | 18 | 0 | 18 | 0 |
+| acl | 8 | 0 | 8 | 0 |
+| version_specific | 12 | 0 | up to 50 | up to 38 |
+| unchanged_control | 5 | 0 | 25 | 20 |
+| version_unavailable | 9 | 1 | 10 | 1 |
+
+**149 accepted, 1 discarded.** Target versions are pg-15 **50**, pg-16 **45**,
+pg-17 **54**. Factoid and identifier each have **17/35** paraphrased rows.
+All accepted rows have `author=llm_drafted`, `drafted_by=omnirush/gpt-6-astra`,
+and `validated=false`. Stable-source categories use `version_independent=true`.
+These are unreviewed candidates, not a validated benchmark.
+
+### Resume exactly here
+
+Stopped at a context checkpoint after completing **batches 001–006**; those
+batches were committed individually and pushed after batches 003 and 006.
+**Next batch: `data/eval/drafts/batch_007.json`.** Remaining work is **10
+multi-hop**, **20 unchanged controls**, **1 version-unavailable**, and **up to
+38 version-specific** questions. No remaining source-scarcity claim has been
+made: the specialized diff pool has not been exhausted. Manually screen mined
+identifier additions/removals against full sources; a mention or table-position
+change does not establish a feature's introduction/removal.
+
+Do not re-import completed batches (the importer will discard duplicates).
+Use the persisted split file. Do not regenerate candidates or touch the blind
+pool. For new batches:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/inspect_drafting_sources.py --help
+PYTHONPATH=src .venv/bin/python scripts/import_drafts.py data/eval/drafts/batch_007.json
+PYTHONPATH=src .venv/bin/python scripts/audit_drafts.py
+```
+
+### Verification at this checkpoint
+
+- Importer checks normalized-whitespace quote matching and persists original
+  quotes plus exact character offsets, full-source identifier absence, dev/test
+  membership for every evidence section, stable-lineage claims, specialized
+  diff provenance, distinct same-version multi-hop sources, ACL source/requester
+  membership, duplicate questions, and common placeholder/vague/meta wording.
+- Final audit rechecked **all 149 accepted rows** against all three full local
+  versions. Summary: `data/eval/drafting_stats.json`.
+- Importer tests: **13** tests included in the final suite. Full suite was run
+  **once at the end: 63 passed in 9.58s**, including the disposable PostgreSQL
+  database tests, with no skips. `.env` loading was explicitly disabled before
+  pytest collection; offline model flags prevented model downloads:
+
+```bash
+RAG_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 .venv/bin/python -c \
+"from rag_service.settings import Settings; Settings.model_config['env_file'] = None; import pytest; raise SystemExit(pytest.main(['-q']))"
+```
+
+- Ruff (`src tests scripts`) and mypy (`src tests`) pass. Dataset validation
+  passes with no errors and four target-shortfall warnings; partial pools are
+  allowed. The importer and schema never mark model-authored drafts validated.
+- **Current PR #4 CI is unverified.** Querying GitHub checks would call an
+  external API, prohibited by this session's instructions. The historical green
+  status above applies to the previous commit, not this checkpoint. Local checks
+  pass; a future session with permission to query GitHub must check the new SHA.
+
+### Labeling commands
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/label_dataset.py review --candidates data/eval/candidates.jsonl --output data/eval/reviewed.jsonl
+PYTHONPATH=src .venv/bin/python scripts/label_dataset.py write --source data/eval/source_sections.jsonl --splits data/eval/splits.json --output data/eval/blind.jsonl
+```
