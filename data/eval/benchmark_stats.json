@@ -1,5 +1,8 @@
 {
-  "blind_pool_unchanged": true,
+  "assignment_changes_in_approved_migration": 4709,
+  "blind_families": 1071,
+  "blind_families_preserved_since_approved_migration": true,
+  "blind_pool_unchanged": false,
   "candidate_counts_dev_test": {
     "acl": 12,
     "exact_identifier": 35,
@@ -10,6 +13,10 @@
     "unchanged_control": 25,
     "version_specific": 50,
     "version_unavailable": 10
+  },
+  "candidate_splits": {
+    "dev": 118,
+    "test": 104
   },
   "candidate_total": 222,
   "diffs": {
@@ -27,20 +34,23 @@
     "lineages_matched": 11365,
     "lineages_total": 12581
   },
+  "mixed_split_families": 0,
   "new_lineages": 1334,
   "preserved_surviving_assignments": 11247,
   "retained_retired_blind": 62,
   "retired_lineages": 662,
+  "section_families": 6653,
   "source_records_per_version": {
     "pg-15": 7893,
     "pg-16": 7984,
     "pg-17": 8069
   },
   "split_counts": {
-    "blind": 1215,
-    "dev": 3808,
-    "test": 3806,
-    "train": 3814
+    "blind": 3497,
+    "dev": 4985,
+    "test": 2265,
+    "train": 1896
   },
-  "validation_source_records": 1336
+  "split_migration": "split-migration.json",
+  "validation_source_records": 3618
 }

@@ -1,10 +1,17 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from rag_service.benchmark.corpus import SourceRecord, parse_postgresql_source, write_source_records
 from rag_service.benchmark.dataset import build_split_assignments
 from rag_service.benchmark.diffs import build_diffs
+from rag_service.benchmark.families import (
+    family_map,
+    manifest_errors,
+    refresh_manifest,
+    resolve_migration,
+)
 from rag_service.benchmark.validation import validate_dataset
 
 
@@ -39,6 +46,38 @@ def test_lineage_refresh_preserves_assignments_and_blind_pool() -> None:
     assert {k for k, v in result.items() if v == "blind"} == {"retired-blind"}
     assert result["new"] in {"train", "dev", "test"}
     assert "retired" not in result
+
+
+def test_block_only_family_and_new_versions_inherit_one_split() -> None:
+    table = replace(record("pg-15", "pg-section:only#table0", "table", kind="table"),
+                    section_id="only", metadata={"section_lineage": "pg-section:only"})
+    code = replace(table, version="pg-17", lineage_key="pg-section:only#code1", kind="code")
+    mapping = family_map([table, code])
+    assert len(set(mapping.values())) == 1
+    result = build_split_assignments([code, table], {table.lineage_key: "blind"},
+                                     lineage_families=mapping)
+    assert result == {table.lineage_key: "blind", code.lineage_key: "blind"}
+
+
+def test_migration_resolves_transitive_conflicts_and_preserves_unexposed_blind() -> None:
+    previous = {"a": "test", "a#table0": "blind", "b": "test", "c": "dev",
+                "d#code0": "blind", "d#table1": "train"}
+    mapping = {key: key.split("#")[0] for key in previous}
+    result, _ = resolve_migration(previous, mapping, {"a": {"test"}, "c": {"dev"}},
+                                  {"a", "b", "c"}, [{"a", "b"}, {"b", "c"}])
+    assert result == {"a": "dev", "a#table0": "dev", "b": "dev", "c": "dev",
+                      "d#code0": "blind", "d#table1": "blind"}
+
+
+def test_manifest_checks_uncommitted_corpus_members_not_just_compact_evidence() -> None:
+    prose = replace(record("pg-15", "pg-section:config", "text"), section_id="config")
+    table = replace(prose, lineage_key="pg-section:config#table0", kind="table",
+                    metadata={"section_lineage": "pg-section:config"})
+    assignments = {prose.lineage_key: "dev", table.lineage_key: "test"}
+    manifest = refresh_manifest([prose, table], assignments,
+                                {"lineages": {}, "components": [], "exposed_families": []}, "hash")
+    errors = manifest_errors(manifest, assignments, [prose])
+    assert any("section family spans splits" in error for error in errors)
 
 
 def test_diff_miner_emits_both_sides_for_default_and_table_changes() -> None:

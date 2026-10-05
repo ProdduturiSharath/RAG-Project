@@ -47,6 +47,7 @@
     "split": {"enum": ["train", "dev", "test", "blind"]},
     "author": {"type": "string", "minLength": 1},
     "validated": {"type": "boolean"},
+    "review_status": {"enum": ["accepted", "rejected"]},
     "drafted_by": {"type": "string", "minLength": 1},
     "paraphrased": {"type": "boolean"},
     "version_independent": {"type": "boolean"},
@@ -59,5 +60,14 @@
   }, {
     "if": {"properties": {"version_independent": {"const": true}}},
     "then": {"required": ["gold_versions"], "properties": {"gold_versions": {"minItems": 1}}}
+  }, {
+    "if": {"required": ["review_status"], "properties": {"review_status": {"const": "rejected"}}},
+    "then": {"properties": {"validated": {"const": false}}}
+  }, {
+    "if": {"required": ["review_status"], "properties": {"review_status": {"const": "accepted"}}},
+    "then": {"properties": {"validated": {"const": true}}}
+  }, {
+    "if": {"properties": {"split": {"const": "blind"}}},
+    "then": {"required": ["review_status"]}
   }]
 }

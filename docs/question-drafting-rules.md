@@ -10,6 +10,11 @@ Do not inspect retrieval results or retrieval code while drafting.
 
 - Use dev and test lineages only, never blind or train. Spread sources across
   pg-15, pg-16, and pg-17.
+- Splits are section-family isolated: prose, all table/code blocks, and every
+  version inherit one stable section identity (`metadata.section_lineage` for
+  blocks), even without prose. Connected multi-hop families share one split.
+  The approved one-time correction is recorded in `data/eval/split-migration.json`;
+  subsequent refreshes preserve family assignments and blind **families**.
 - Read passages about 300–1500 characters long; skip near-empty, navigation,
   and entity-only sections.
 - For factoid, exact-identifier, table, multi-hop, and ACL questions, prefer
@@ -58,6 +63,10 @@ Do not inspect retrieval results or retrieval code while drafting.
   Push every three batches. Never mark a draft `validated=true`.
 - Imported rows use `author=llm_drafted`, `drafted_by=omnirush/gpt-6-astra`,
   `paraphrased`, `version_independent`, and `validated=false`.
+- Human rejection records `review_status=rejected, validated=false`; acceptance
+  records `review_status=accepted, validated=true`. Final-gold eligibility
+  requires both validated true and explicit accepted status, including legacy
+  records. Future owner-authored blind rows also record explicit acceptance.
 - At a context-limit stopping point, commit and push, and record exactly which
   batches are complete and what remains in `docs/status.md`.
 - Complete the remaining batches in this session. Show samples/report only at

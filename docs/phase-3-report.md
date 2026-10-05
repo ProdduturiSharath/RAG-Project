@@ -11,6 +11,13 @@ Branch: `phase-3-corpus-benchmark`
 > [`status.md`](status.md). Rules: [`question-drafting-rules.md`](question-drafting-rules.md).
 > PR #4 unit and integration CI pass; the PR remains open and unmerged.
 
+> **Cleanup (2026-10-05):** Owner-approved section-family migration retains all
+> 222 candidates (dev 118/test 104) and six unchanged human reviews. Blind keys
+> are 3,497, with zero mixed families. Rejected reviews are unvalidated and
+> final gold requires explicit acceptance. See the latest status section and
+> [`phase-3-parser-impact-audit.md`](phase-3-parser-impact-audit.md) for the
+> bounded read-only parser findings and separate repair recommendation.
+
 ## 1. Implemented
 
 - Added `scripts/fetch_postgres_docs.py`, which politely downloads the official

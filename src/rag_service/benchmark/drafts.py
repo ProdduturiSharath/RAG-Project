@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .corpus import SourceRecord
+from .families import family_map, isolation_errors
 from .gold import gold_version_map
 from .validation import TARGET_COUNTS
 
@@ -44,6 +45,10 @@ class DraftImporter:
     ) -> None:
         self.records = records
         self.assignments = assignments
+        mapping = family_map(records)
+        errors = isolation_errors({k: v for k, v in assignments.items() if k in mapping}, mapping)
+        if errors:
+            raise ValueError(errors[0])
         self.sources: dict[tuple[str, str], list[SourceRecord]] = defaultdict(list)
         texts: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
         for record in records:

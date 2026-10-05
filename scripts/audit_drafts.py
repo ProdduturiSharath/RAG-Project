@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import yaml
 
 from rag_service.benchmark.corpus import load_source_records
 from rag_service.benchmark.drafts import DraftImporter
+from rag_service.benchmark.families import family_map, manifest_errors
 from rag_service.benchmark.validation import TARGET_COUNTS
 
 
@@ -29,19 +29,23 @@ def main() -> None:
         assert checked["evidence_spans"] == row["evidence_spans"], row["id"]
         assert checked["gold_versions"] == row["gold_versions"], row["id"]
         assert row["author"] == "llm_drafted" and row["validated"] is False
-    # The pre-session commit is the immutable reference for the owner's pool.
-    baseline = json.loads(subprocess.check_output(
-        ["git", "show", "45a586d:data/eval/splits.json"], text=True))
-    assert splits["blind_pool"] == baseline["blind_pool"]
-    current_keys = {r.lineage_key for r in records}
-    assert all(splits["assignments"][key] == split
-               for key, split in baseline["assignments"].items() if key in current_keys)
-    old_sources = [json.loads(line) for line in subprocess.check_output(
-        ["git", "show", "45a586d:data/eval/source_sections.jsonl"], text=True).splitlines()]
-    old_blind = [r for r in old_sources if baseline["assignments"][r["lineage_key"]] == "blind"]
     compact = load_source_records(root / "source_sections.jsonl")
-    new_blind = [r.to_json() for r in compact if splits["assignments"][r.lineage_key] == "blind"]
-    assert new_blind == old_blind
+    manifest = json.loads((root / "section_families.json").read_text())
+    migration = json.loads((root / "split-migration.json").read_text())
+    assert migration["owner_approval"]
+    assert not manifest_errors(manifest, splits["assignments"], records)
+    mapping = family_map(records)
+    mapping.update({k: v["family_key"] for k, v in manifest["lineages"].items()})
+    approved_families = {mapping[key]: split for key, split in
+                         migration["approved_assignments"].items()}
+    assert all(splits["assignments"][key] == approved_families[mapping[key]]
+               for key in splits["assignments"] if mapping[key] in approved_families)
+    blind_families = sorted({mapping[key] for key, split in splits["assignments"].items()
+                             if split == "blind"})
+    assert blind_families == splits["blind_families"]
+    approved_blind = sorted({mapping[key] for key, split in
+                             migration["approved_assignments"].items() if split == "blind"})
+    assert blind_families == approved_blind
     reports = [json.loads(path.read_text()) for path in sorted(
         (root / "drafts").glob("batch_*.report.json"))]
     discarded: Counter[str] = Counter()
@@ -67,15 +71,23 @@ def main() -> None:
         "paraphrased": {kind: sum(r["paraphrased"] for r in rows if r["type"] == kind)
                         for kind in ("factoid", "exact_identifier")},
         "batches": [{k: r[k] for k in ("batch", "accepted", "discarded")} for r in reports],
-        "blind_pool_unchanged": True, "blind_passages_unchanged": True,
-        "surviving_assignments_unchanged": True,
+        "family_isolation": True, "mixed_split_families": 0,
+        "blind_families_preserved_since_approved_migration": True,
+        "approved_family_assignments_preserved": True,
+        "candidate_splits": dict(Counter(r["split"] for r in rows)),
         "all_accepted_rechecked_against_full_corpus": True,
     }
     (root / "drafting_stats.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     stats_path = root / "benchmark_stats.json"
     stats = json.loads(stats_path.read_text())
     stats.update(candidate_total=len(rows), candidate_counts_dev_test=dict(counts),
-                 validation_source_records=len(compact))
+                 validation_source_records=len(compact), split_counts=splits["counts"],
+                 section_families=manifest["active_families"], mixed_split_families=0,
+                 split_migration="split-migration.json", blind_pool_unchanged=False,
+                 assignment_changes_in_approved_migration=4709,
+                 candidate_splits=dict(Counter(r["split"] for r in rows)),
+                 blind_families=len(blind_families),
+                 blind_families_preserved_since_approved_migration=True)
     stats_path.write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))
 

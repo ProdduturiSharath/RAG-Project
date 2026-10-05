@@ -379,3 +379,109 @@ for every one of the **222** accepted rows. Counts and provenance summary:
 PYTHONPATH=src .venv/bin/python scripts/label_dataset.py review --candidates data/eval/candidates.jsonl --output data/eval/reviewed.jsonl
 PYTHONPATH=src .venv/bin/python scripts/label_dataset.py write --source data/eval/source_sections.jsonl --splits data/eval/splits.json --output data/eval/blind.jsonl
 ```
+
+## Phase 3 cleanup — 2026-10-05
+
+The owner approved the earlier section-family migration, including its
+one-time blind correction, and knows of no additional exposure history.
+Applied on `phase-3-corpus-benchmark` from baseline `cee8890` with a pre-write
+guard: **all projected numbers matched**. This supersedes the earlier promises
+of unchanged lineage-level assignments/blind membership; normal refreshes now
+preserve **section-family** decisions.
+
+### Actual migration and preservation
+
+| Item | Actual |
+| --- | ---: |
+| Changed existing lineage assignments | 4,709 |
+| Candidate rows whose split changed, test → dev | 32 |
+| Candidates retained | 222 |
+| Candidate dev / test | 118 / 104 |
+| Accepted human reviews retained unchanged | 6 (2 dev / 4 test) |
+| Blind lineage keys | 3,497 |
+| Blind families | 1,071 (1,017 current + 54 retired-only) |
+| Mixed-split families | 0 |
+
+- Split assignment counts: train **1,896**, dev **4,985**, test **2,265**, blind
+  **3,497**. All **62** retired reservations remain unchanged.
+- Grouped **12,581** current keys into **6,653** section families from the full
+  **23,946** local source records, not just the compact artifact; **115** current
+  families have no prose. Blocks use `metadata.section_lineage`, other records
+  stable section identity. No titles are used for splitting.
+- Transitive connections across multi-hop questions resolve as **five**
+  multi-family components. Candidate/review components stay dev/test, with dev
+  preferred on conflicts. Historical drafted/generated questions are included
+  in the exposure inventory, including discarded/removed drafts.
+- Excluded **19** exposed old blind families (**21** blind keys) and promoted
+  **2,303** sibling keys of retained blind families. No previously non-blind
+  family was added as a new blind family. **148** recorded exposed families are
+  excluded from blind. Exposure outside recorded history remains unverifiable;
+  the owner confirms no additional history and no private blind questions.
+- Candidate preservation checked once during migration: all IDs, questions,
+  answers, evidence, gold versions, flags, and other payload fields are equal
+  to baseline after excluding only `split`. Exactly 32 split fields changed.
+  All six reviews' bytes were preserved, and `reviewed.jsonl` remains untracked.
+- `data/eval/section_families.json` commits full metadata coverage (including
+  reservations), not the full corpus. CI checks every family assignment,
+  connected component, exposed-family exclusion, and compact source identity.
+  `data/eval/split-migration.json` records approval, baseline/full-source/review
+  fingerprints, history provenance, and every assignment change/reason.
+- Builder, importer, validator, and audit now enforce family isolation. The
+  old `45a586d` equality assertions are replaced with preservation of the
+  approved family baseline; new blocks/versions inherit the existing split.
+
+### Review flags and final-gold eligibility
+
+Rejected rows now save `review_status=rejected, validated=false`; accepted rows
+save `review_status=accepted, validated=true`. `is_final_gold` and validator
+`--final-gold` mode require **both** explicit acceptance and validated true, so
+legacy rejected rows marked validated true remain ineligible. Ordinary
+candidate validation still allows unreviewed drafts. Future owner-authored blind
+rows have explicit accepted status. The six existing accepted reviews were
+not rewritten; all 222 model candidates remain unvalidated.
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/validate_dataset.py
+PYTHONPATH=src .venv/bin/python scripts/validate_dataset.py --dataset data/eval/reviewed.jsonl --final-gold --allow-incomplete
+```
+
+### Bounded read-only parser findings
+
+Full findings: `docs/phase-3-parser-impact-audit.md`. Inspected the **11 flagged
+candidates**, **six extra candidates**, and **three table-title examples**.
+Missing “see” references are cosmetic for the 11 selected answers. Neighboring
+gaps lose real meaning: track_counts, JIT setting names/EXPLAIN, VACUUM/ANALYZE,
+and application_name disappear from defining or explanatory sentences.
+
+Table titles overwrite section titles and parent paths. pg_stat_activity's
+13 records get the last wait-event table title; WAL Settings becomes
+synchronous_commit Modes; pg_subscription becomes pg_subscription Columns.
+Explicit family identities survive. A synthetic read-only example demonstrates
+that lost parent/title keywords can affect title-based ACL classification;
+no allowance flip was found for the current ACL candidates' restricted ancestor
+paths in this bounded audit.
+
+All **six accepted answers remain supported**. The two pg_subscription reviews
+should have their context metadata revisited after parser repair; no changed
+answer or rejection is indicated now. Recommend a separate repair to distinguish
+table/section titles, preserve parent identity, and render meaningful xref
+labels. **No parser repair, corpus regeneration, ingestion or embedding run**
+was performed in this cleanup. No model API or `.env` was accessed.
+
+### Verification
+
+- Full offline suite run **once: 69 passed in 9.32s**, including disposable
+  PostgreSQL tests, no skips. `.env` loading was disabled before collection and
+  `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` prevented model downloads.
+- Dataset validation: **222 rows**, **zero errors/warnings**, **zero final-gold
+  rows**. Accepted-review validation with `--final-gold --allow-incomplete`:
+  **six rows**, all eligible, **zero errors/warnings**.
+- Full-source family/evidence audit passes; the compact CI source artifact is
+  **3,618 records**. Candidate/review payload preservation was checked once at
+  migration, and the five new focused tests cover family/block/transitive/CI
+  isolation plus review rejection/acceptance and explicit blind acceptance.
+- Ruff initially found two overlong lines in scripts; formatting only was
+  corrected, then lint/type checks repeated. Ruff (`src tests scripts`) and
+  mypy (`src tests`) pass.
+- PR #4 remains unmerged; Phase 4 has not started. Parser repair is a separately
+  recommended follow-up, not a blocker to completing this cleanup.

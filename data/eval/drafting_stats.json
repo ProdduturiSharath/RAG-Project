@@ -5,6 +5,7 @@
     "denied": 8
   },
   "all_accepted_rechecked_against_full_corpus": true,
+  "approved_family_assignments_preserved": true,
   "batches": [
     {
       "accepted": 25,
@@ -52,8 +53,7 @@
       "discarded": 0
     }
   ],
-  "blind_passages_unchanged": true,
-  "blind_pool_unchanged": true,
+  "blind_families_preserved_since_approved_migration": true,
   "by_type": {
     "acl": {
       "accepted": 12,
@@ -110,11 +110,17 @@
       "target": 10
     }
   },
+  "candidate_splits": {
+    "dev": 118,
+    "test": 104
+  },
   "discarded": 1,
+  "family_isolation": true,
   "gold_version_sets": {
     "pg-15": 21,
     "pg-15,pg-16,pg-17": 98
   },
+  "mixed_split_families": 0,
   "multi_hop_dependency_chains_recorded": true,
   "paraphrased": {
     "exact_identifier": 17,
@@ -123,7 +129,6 @@
   "removed_after_import": {
     "multi_hop": 1
   },
-  "surviving_assignments_unchanged": true,
   "target_versions": {
     "pg-15": 79,
     "pg-16": 81,

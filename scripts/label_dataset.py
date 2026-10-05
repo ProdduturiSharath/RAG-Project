@@ -46,7 +46,7 @@ def review(args: argparse.Namespace) -> int:
             break
         if action == "r":
             row = dict(candidate)
-            row.update({"validated": True, "review_status": "rejected", "author": "human"})
+            row.update({"validated": False, "review_status": "rejected", "author": "human"})
         elif action in {"a", "e"}:
             row = dict(candidate)
             if action == "e":
@@ -107,6 +107,11 @@ def write_blind(args: argparse.Namespace) -> int:
             "split": "blind",
             "author": "human",
             "validated": True,
+            "review_status": "accepted",
+            "drafted_by": "owner",
+            "paraphrased": False,
+            "version_independent": False,
+            "gold_versions": [],
         }
         _append(args.output, row)
         print(f"saved {row['id']}")

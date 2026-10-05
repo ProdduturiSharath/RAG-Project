@@ -16,12 +16,15 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=Path("data/eval/source_sections.jsonl"))
     parser.add_argument("--splits", type=Path, default=Path("data/eval/splits.json"))
     parser.add_argument("--allow-incomplete", action="store_true")
+    parser.add_argument("--final-gold", action="store_true",
+                        help="Require explicit accepted reviews; reject legacy rejected labels")
     args = parser.parse_args()
     result = validate_dataset(
         args.dataset,
         args.source,
         args.splits,
         require_targets=not args.allow_incomplete,
+        require_final_gold=args.final_gold,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["valid"] else 1

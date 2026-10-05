@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .corpus import SourceRecord, load_source_records
+from .families import family_map, isolation_errors, manifest_errors, question_lineages
 from .gold import gold_version_map
 
 TARGET_COUNTS = {
@@ -52,12 +53,19 @@ def _source_map(records: list[SourceRecord]) -> dict[tuple[str, str], str]:
     return {key: "\n".join(texts) for key, texts in values.items()}
 
 
+def is_final_gold(row: dict[str, Any]) -> bool:
+    """Legacy validated rejected rows are never eligible for final gold."""
+    return row.get("validated") is True and row.get("review_status") == "accepted"
+
+
 def validate_dataset(
     dataset_path: str | Path,
     source_path: str | Path,
     splits_path: str | Path,
     *,
     require_targets: bool = True,
+    require_final_gold: bool = False,
+    family_manifest_path: str | Path | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -85,6 +93,10 @@ def validate_dataset(
                           "version_independent"):
                 if not isinstance(row.get(field), bool):
                     errors.append(f"line {number}: {field} must be boolean")
+            if row.get("review_status") not in {None, "accepted", "rejected"}:
+                errors.append(f"line {number}: unknown review_status")
+            if require_final_gold and not is_final_gold(row):
+                errors.append(f"line {number}: final gold requires validated accepted review")
             question = _SPACE_RE.sub(" ", str(row.get("question", "")).strip().lower())
             if not question:
                 errors.append(f"line {number}: question is empty")
@@ -109,6 +121,30 @@ def validate_dataset(
     gold = gold_version_map(records)
     splits = json.loads(Path(splits_path).read_text(encoding="utf-8"))
     assignments = dict(splits.get("assignments", splits))
+    if family_manifest_path is None and splits.get("family_manifest"):
+        family_manifest_path = Path(splits_path).parent / splits["family_manifest"]
+    mapping = family_map(records)
+    if family_manifest_path is not None:
+        manifest_path = Path(family_manifest_path)
+        if not manifest_path.exists():
+            errors.append("complete section-family manifest is missing")
+        else:
+            manifest = json.loads(manifest_path.read_text())
+            errors.extend(manifest_errors(manifest, assignments, records))
+            mapping = {key: value["family_key"] for key, value in manifest["lineages"].items()}
+    else:
+        errors.extend(isolation_errors({k: v for k, v in assignments.items() if k in mapping},
+                                       mapping))
+    connections = []
+    for row in rows:
+        if row.get("type") == "multi_hop":
+            keys = question_lineages(row)
+            if not keys <= mapping.keys():
+                errors.append(f"{row.get('id')}: multi-hop lineage lacks family metadata")
+            else:
+                connections.append({mapping[key] for key in keys})
+    errors.extend(isolation_errors({k: v for k, v in assignments.items() if k in mapping},
+                                   mapping, connections))
     split_lineages: dict[str, set[str]] = defaultdict(set)
     listed_lineages: dict[str, set[str]] = defaultdict(set)
     for split, lineages in splits.get("splits", {}).items():
@@ -155,7 +191,9 @@ def validate_dataset(
                 isinstance(s, dict) and s.get("lineage_key") == lineage for s in spans
             ):
                 errors.append(f"{row.get('id')}: primary lineage absent from evidence")
-        if split not in {"dev", "test"}:
+        if split not in {"dev", "test"} and not (
+            require_final_gold and split == "blind" and row.get("author") == "human"
+        ):
             errors.append(f"{row.get('id', '<unknown>')}: non-dev/test lineage appears in dataset")
         if row.get("author") in {"generated", "llm_drafted"} and row.get("validated"):
             errors.append(f"{row.get('id', '<unknown>')}: draft row cannot be validated")
@@ -185,7 +223,8 @@ def validate_dataset(
         "source_records": len(records),
         "lineages": len(assignments),
         "blind_lineages": len(split_lineages["blind"]),
+        "final_gold_records": sum(is_final_gold(row) for row in rows),
     }
 
 
-__all__ = ["TARGET_COUNTS", "validate_dataset"]
+__all__ = ["TARGET_COUNTS", "is_final_gold", "validate_dataset"]
