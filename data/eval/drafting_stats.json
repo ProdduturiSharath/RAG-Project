@@ -1,5 +1,9 @@
 {
-  "accepted": 149,
+  "accepted": 222,
+  "acl_cases": {
+    "allowed": 4,
+    "denied": 8
+  },
   "all_accepted_rechecked_against_full_corpus": true,
   "batches": [
     {
@@ -31,13 +35,28 @@
       "accepted": 24,
       "batch": "batch_006.json",
       "discarded": 1
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_007.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_008.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 24,
+      "batch": "batch_009.json",
+      "discarded": 0
     }
   ],
   "blind_passages_unchanged": true,
   "blind_pool_unchanged": true,
   "by_type": {
     "acl": {
-      "accepted": 8,
+      "accepted": 12,
       "discarded": 0,
       "remaining": 0,
       "target": 8
@@ -55,9 +74,9 @@
       "target": 35
     },
     "multi_hop": {
-      "accepted": 2,
+      "accepted": 12,
       "discarded": 0,
-      "remaining": 10,
+      "remaining": 0,
       "target": 12
     },
     "table": {
@@ -73,33 +92,42 @@
       "target": 18
     },
     "unchanged_control": {
-      "accepted": 5,
+      "accepted": 25,
       "discarded": 0,
-      "remaining": 20,
+      "remaining": 0,
       "target": 25
     },
     "version_specific": {
-      "accepted": 12,
+      "accepted": 50,
       "discarded": 0,
-      "remaining": 38,
+      "remaining": 0,
       "target": 50
     },
     "version_unavailable": {
-      "accepted": 9,
+      "accepted": 10,
       "discarded": 1,
-      "remaining": 1,
+      "remaining": 0,
       "target": 10
     }
   },
   "discarded": 1,
+  "gold_version_sets": {
+    "pg-15": 21,
+    "pg-15,pg-16,pg-17": 98
+  },
+  "multi_hop_dependency_chains_recorded": true,
   "paraphrased": {
     "exact_identifier": 17,
     "factoid": 17
   },
+  "removed_after_import": {
+    "multi_hop": 1
+  },
   "surviving_assignments_unchanged": true,
   "target_versions": {
-    "pg-15": 50,
-    "pg-16": 45,
-    "pg-17": 54
-  }
+    "pg-15": 79,
+    "pg-16": 81,
+    "pg-17": 62
+  },
+  "version_independent_rows": 119
 }

@@ -273,3 +273,109 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 .venv/bin/python -c \
 PYTHONPATH=src .venv/bin/python scripts/label_dataset.py review --candidates data/eval/candidates.jsonl --output data/eval/reviewed.jsonl
 PYTHONPATH=src .venv/bin/python scripts/label_dataset.py write --source data/eval/source_sections.jsonl --splits data/eval/splits.json --output data/eval/blind.jsonl
 ```
+
+## Phase 3 drafting completion — 2026-10-05
+
+**All requested drafting is complete on `phase-3-corpus-benchmark`.** This
+completion supersedes the batch-007 resume instructions and incomplete counts
+above. Batches **001–009** are done; there is no remaining drafting work.
+PR #4 remains open and unmerged. Phase 4 has not started. No model/LLM API was
+called, no question generator was used, and `.env` was not read. Git and `gh`
+were permitted by the continuation instructions.
+
+### Final pool
+
+| Type | Accepted | Import-discarded | Removed after import |
+| --- | ---: | ---: | ---: |
+| factoid | 35 | 0 | 0 |
+| exact_identifier | 35 | 0 | 0 |
+| table | 25 | 0 | 0 |
+| multi_hop | 12 | 0 | 1 |
+| version_specific | 50 | 0 | 0 |
+| unchanged_control | 25 | 0 | 0 |
+| version_unavailable | 10 | 1 | 0 |
+| unanswerable | 18 | 0 | 0 |
+| acl | 12 | 0 | 0 |
+| **Total** | **222** | **1** | **1** |
+
+- ACL: **8 denied, 4 allowed**. Allowed cases use `alice` or `bob` and the
+  explicit `docs-admins`/`sre` policy in `data/acl_demo.yaml`. The importer derives
+  and verifies `acl_allowance` from that policy, rather than marking every ACL
+  requester denied. All ACL questions use restricted stable source sections.
+- Multi-hop: removed the independent `plan_cache_mode` + `effective_cache_size`
+  question. Rewrote the original GEQO question to ask for
+  `current_setting('geqo_threshold')`: identify the setting from its behavior,
+  then supply that setting as the function argument. All **12** candidates now
+  ask one connected question and record their dependency in `reasoning_chain`.
+  Two new default-ACL questions were tightened further to avoid giving away
+  the object type that must be decoded from the first passage.
+- Version questions and controls all carry specialized `diff_id` provenance;
+  new sources include changed aggregate Partial Mode support, the
+  `force_parallel_mode`/`debug_parallel_query` rename, and added parameters,
+  functions, and catalog rows. **All targets reached; no filler or other-text
+  diff padding, and no source-scarcity shortfall.**
+- The one final import discard remains the batch-006 `scram_iterations` item,
+  because its identifier occurs in the requested pg-15 corpus. The batch-007
+  first attempt had one source-version mismatch, corrected to pg-15 and retried
+  successfully; its report retains that correction history without counting
+  already accepted rows as duplicates.
+- Target-version counts: pg-15 **79**, pg-16 **81**, pg-17 **62**. Factoid and
+  exact-identifier still each have **17/35** behavior-paraphrased questions.
+- Every candidate is `author=llm_drafted`, `drafted_by=omnirush/gpt-6-astra`,
+  `validated=false`; these are ready for human review, not human-validated gold.
+
+### Continuation batches
+
+| Batch | Accepted | Final discarded | Contents |
+| --- | ---: | ---: | --- |
+| `batch_007.json` | 25 | 0 | 11 connected multi-hop, 4 allowed ACL, 10 version-specific |
+| `batch_008.json` | 25 | 0 | 25 version-specific |
+| `batch_009.json` | 24 | 0 | 20 controls, 3 version-specific, 1 version-unavailable |
+
+Each batch was written manually, imported, and committed; origin was pushed
+after batch 009. Explicit handwritten corrections are retained in
+`data/eval/drafts/revisions.json`.
+
+### Gold-version bookkeeping
+
+All **119 version-independent rows** now store their primary `lineage_key`
+and `gold_versions`. Full text and block kinds are compared character-for-
+character within each lineage across all source versions, using
+`src/rag_service/benchmark/gold.py`. Each evidence span stores its own gold
+versions; multi-hop rows store the intersection for both evidence lineages.
+The importer calculates these lists, the validator verifies them, and a new
+unit test rejects an incomplete list. Equivalent sources are included in the
+committed compact artifact so CI can verify them offline. That artifact now
+contains **1,336** records; full ignored local corpus remains **23,946** records.
+
+The bookkeeping script can refresh metadata without producing questions:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/refresh_draft_metadata.py
+PYTHONPATH=src .venv/bin/python scripts/audit_drafts.py
+PYTHONPATH=src .venv/bin/python scripts/validate_dataset.py
+```
+
+No splits or blind passages were changed in this continuation. The full-source
+audit confirms both their equality to commit `45a586d` and exact evidence spans
+for every one of the **222** accepted rows. Counts and provenance summary:
+`data/eval/drafting_stats.json`.
+
+### Final verification
+
+- Focused importer tests during iteration: **14 passed**, including the new
+  gold-version test. Full suite run once at the end: **64 passed in 19.68s**,
+  including disposable PostgreSQL tests, no skips. Same offline flags and
+  explicit `Settings.model_config['env_file'] = None` as the command above.
+- Ruff (`src tests scripts`) and mypy (`src tests`) pass.
+- Dataset validator: **222 records, zero errors, zero warnings**.
+- PR #4 checks queried with `gh`: unit and integration **PASS** for batch-009
+  commit `2d5d432`, run `37273178459`. The final handoff commit is pushed and
+  its head checks are checked again before the final response.
+
+### Next action: human labeling
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/label_dataset.py review --candidates data/eval/candidates.jsonl --output data/eval/reviewed.jsonl
+PYTHONPATH=src .venv/bin/python scripts/label_dataset.py write --source data/eval/source_sections.jsonl --splits data/eval/splits.json --output data/eval/blind.jsonl
+```

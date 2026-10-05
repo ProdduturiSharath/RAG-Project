@@ -55,6 +55,11 @@ def main() -> None:
                                              if r["action"] == "remove")),
         "acl_cases": dict(Counter("allowed" if r["acl_allowance"] else "denied"
                                   for r in rows if r["type"] == "acl")),
+        "version_independent_rows": sum(r["version_independent"] for r in rows),
+        "gold_version_sets": dict(Counter(",".join(r["gold_versions"]) for r in rows
+                                         if r["version_independent"])),
+        "multi_hop_dependency_chains_recorded": all(r.get("reasoning_chain")
+                                                    for r in rows if r["type"] == "multi_hop"),
         "by_type": {kind: {"accepted": counts[kind], "discarded": discarded[kind],
                            "target": target, "remaining": max(0, target - counts[kind])}
                     for kind, target in TARGET_COUNTS.items()},

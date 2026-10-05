@@ -3,13 +3,13 @@
 Date: 2026-10-04 UTC
 Branch: `phase-3-corpus-benchmark`
 
-> **Current checkpoint (2026-10-04):** The historical generated pool described
-> below has been deleted and replaced with **149 manually drafted, unvalidated
-> candidates** in batches 001–006. Corrected corpus counts, refreshed splits and
-> diffs, per-type counts, the one rejected draft, remaining drafting work, and
-> final verification (**63 passed**) are recorded in the latest checkpoint in
+> **Drafting complete (2026-10-05):** The historical generated pool described
+> below has been deleted and replaced with **222 manually drafted, unvalidated
+> candidates** in batches 001–009. Corrected corpus counts, refreshed splits and
+> diffs, final per-type counts, connected multi-hop questions, allowed/denied ACL
+> cases, gold-version metadata, and final verification (**64 passed**) are recorded in
 > [`status.md`](status.md). Rules: [`question-drafting-rules.md`](question-drafting-rules.md).
-> Current PR CI was not queried because external API calls are prohibited.
+> PR #4 unit and integration CI pass; the PR remains open and unmerged.
 
 ## 1. Implemented
 
