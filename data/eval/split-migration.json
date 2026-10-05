@@ -60614,6 +60614,13 @@
   "exposure_uncertainty": "No additional history known to owner; unsaved/untracked history cannot be independently verified",
   "original_candidates_sha256": "d9b1396ef14b8c3e42ca49b0e2b9fd06f87feca7fa0a12bbb9ed8afff6eef24b",
   "owner_approval": "Approved in this session, including one-time blind-family correction",
+  "parser_extensions": [
+    {
+      "added_assignments": {},
+      "existing_entries_and_assignments_unchanged": true,
+      "source_sha256": "1ebde2b2d6156bce7bcf31ea4d775dafb6d3aee4f2ef59565f86a98ed9c13994"
+    }
+  ],
   "question_history": [
     {
       "commit": "cee88902701ebe40c1ba028b47a0213ab99ea7c3",

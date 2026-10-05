@@ -18,6 +18,13 @@ Branch: `phase-3-corpus-benchmark`
 > [`phase-3-parser-impact-audit.md`](phase-3-parser-impact-audit.md) for the
 > bounded read-only parser findings and separate repair recommendation.
 
+> **Parser repair follow-up:** Existing IDs and family splits are preserved via
+> legacy identity compatibility. Repaired text, heading paths and separate
+> captions are re-ingested into `evidence_rag_eval`: 5,040 embeddings computed in
+> 591.178 seconds. All 607 newly non-empty records are reference-only and excluded.
+> Sixteen candidate quote changes are printed in `phase-3-evidence-changes.md`;
+> the original six human review rows remain untouched.
+
 ## 1. Implemented
 
 - Added `scripts/fetch_postgres_docs.py`, which politely downloads the official

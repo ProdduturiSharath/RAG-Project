@@ -4,6 +4,8 @@ import runpy
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from rag_service.benchmark.corpus import SourceRecord, write_source_records
 from rag_service.benchmark.validation import is_final_gold
 
@@ -24,6 +26,15 @@ def test_review_acceptance_and_rejection_flags(tmp_path: Path, monkeypatch: Any)
     assert not is_final_gold({**rejected, "validated": True})  # Legacy rejected row.
     assert not is_final_gold({"validated": True})  # No explicit acceptance.
     assert not is_final_gold({"validated": False, "review_status": "accepted"})
+    # Already-reviewed IDs are skipped. A fresh output reconfirms selected IDs
+    # without modifying the original labels.
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("reviewed ID prompted again"))
+    tool["review"](argparse.Namespace(candidates=candidates, output=output, ids="accept"))
+    assert len(output.read_text().splitlines()) == 2
+    monkeypatch.setattr("builtins.input", lambda _: "a")
+    reconfirmed = tmp_path / "reconfirmed.jsonl"
+    tool["review"](argparse.Namespace(candidates=candidates, output=reconfirmed, ids="accept"))
+    assert json.loads(reconfirmed.read_text())["id"] == "accept"
 
 
 def test_future_blind_rows_have_explicit_acceptance(tmp_path: Path, monkeypatch: Any) -> None:

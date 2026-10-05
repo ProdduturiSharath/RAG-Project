@@ -485,3 +485,112 @@ was performed in this cleanup. No model API or `.env` was accessed.
   mypy (`src tests`) pass.
 - PR #4 remains unmerged; Phase 4 has not started. Parser repair is a separately
   recommended follow-up, not a blocker to completing this cleanup.
+
+## Phase 3 identity-preserving parser repair — 2026-10-05
+
+The owner approved the bounded repair and an identity-compatibility strategy
+after the initial dry run failed its guard. The legacy collector remains the
+authority for every existing section ID, lineage key, block ordinal, and
+family identity. A parallel display collector renders xref labels, keeps
+explicit link/parameter text, and separates table captions from section titles
+and parent paths. Existing records carry corrected text/title/path and the
+legacy heading path as metadata; captions are a separate field. No other
+structural parser behavior was changed.
+
+### Guards and formerly empty records
+
+- **All guards passed before artifact application:** existing identities and
+  split assignments unchanged; all 222 candidate IDs, questions, answers,
+  primary/evidence lineage keys unchanged; zero mixed families; no old blind
+  key left blind. Candidates remain dev **118** / test **104**, blind keys
+  **3,497**. All 12 ACL candidates still have a restricted heading ancestor
+  (**8 denied, 4 allowed**).
+- All existing family-manifest entries remain equal to the pre-repair entries.
+  The manifest source fingerprint and provenance reflect repaired content;
+  migration provenance records the approved extension (zero added assignments).
+- The repaired rendering discovers **607** previously empty record instances,
+  with character lengths **15–116**: **419 under 50**, **167 at 50–99**,
+  **21 at 100–299**, **0 at 300–1499**, **0 at 1500+**. All **607** contain
+  cross-references only, so the owner's filter excludes all of them, including
+  the 188 that pass the length cutoff. No new records are indexed or assigned.
+  All 607 receive collision-checked `xref-restored-*` identities in the impact
+  inventory, but excluded records do not enter the index or assignment file.
+  A qualifying restored record inherits its existing family or uses the
+  builder's deterministic split rule; existing siblings are unaffected.
+- This bounded sample provides no evidence to relax the 50-character guess:
+  length alone would retain 188 reference-only navigation entries. The
+  reference-only rule is what excludes them correctly here.
+- Full indexed corpus remains pg-15 **7,893**, pg-16 **7,984**, pg-17 **8,069**
+  records. Compact artifact remains **3,618** records, with repaired text and
+  display metadata. Full corpus is still ignored/local, never committed.
+
+### Dry-run and real eval ingestion
+
+Recorded dry-run: `data/eval/parser-repair-impact.json`. The earlier unguarded
+prototype predicted 5,240 embeddings; after excluding all 607 reference-only
+records, the identity-preserving run predicted **5,040**, below 10,000.
+
+| Version | Changed existing chunk text | Added windows | Changed display-metadata chunks |
+| --- | ---: | ---: | ---: |
+| pg-15 | 3,313 | 36 | 3,405 |
+| pg-16 | 3,413 | 35 | 3,506 |
+| pg-17 | 3,496 | 33 | 3,521 |
+
+Re-ingested the guarded full artifact only into **evidence_rag_eval**, using
+cached local `bge-small-en-v1.5` with offline model flags and content-hash reuse.
+The running Postgres container initially had no attached network/published
+host port; reconnected its existing Compose network and used a temporary local
+forwarder on port 55432. No `.env` or model API was accessed. The forwarder is
+removed after final local verification; no server was re-created or re-ingested
+into a test database.
+
+| Version | Documents | Sections | Chunks | Table | Code | Computed | Reused | Embedding seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| pg-15 | 1 | 7,893 | 10,777 | 459 | 3,822 | 3,332 | 7,363 | 348.672 |
+| pg-16 | 1 | 7,984 | 10,912 | 467 | 3,873 | 844 | 9,984 | 117.327 |
+| pg-17 | 1 | 8,069 | 11,030 | 463 | 3,939 | 864 | 10,079 | 125.178 |
+
+**5,040 embeddings computed; 591.178 seconds total encoding time**. These are
+measured encoding calls, not total job wall time. Artifact:
+`data/eval/parser_repair_ingestion_metrics.json`; the original ingestion metrics
+remain available for comparison. Corrected heading paths/captions are stored
+with ingestion metadata; embeddings remain text-only, reusable by content hash.
+
+### Evidence and owner re-confirmation
+
+Exactly the **16 approved IDs** have changed evidence quote text. All other
+quote strings are identical; source offsets/heading paths were refreshed as
+needed. Full old/new quotes and the list are printed in
+`docs/phase-3-evidence-changes.md`, with machine-readable pairs in the impact
+artifact. Questions/answers are unchanged. Full-source audit confirms source
+spans, stable-version gold metadata, and family assignments.
+
+`reviewed.jsonl` remains unchanged and untracked. Two of its accepted IDs,
+`draft-257b83c46f868ef6` and `draft-2698580abdaeb4fb`, need evidence re-confirmation:
+their cache/default answers are still correct. The two pg_subscription
+bool/char reviews still hold, with unchanged quote text and corrected section
+context. The review tool skips already-reviewed IDs in its output, so use a
+separate fresh output to reconfirm only the two changed-evidence reviews:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/label_dataset.py review --ids draft-257b83c46f868ef6,draft-2698580abdaeb4fb --output data/eval/parser-reconfirmations.jsonl
+```
+
+Choose `a` to append an explicit accepted human review with the same ID and
+repaired evidence to the new file. Earlier decisions are retained in the
+original file. Reusing an output containing those IDs will skip them again.
+
+### End-of-task verification
+
+- Dataset validation: **222 records, zero errors and warnings**. Full-source
+  audit passes, including all 119 gold-version lists and all family assignments.
+- Full offline suite run once: **72 passed in 15.16s**, including disposable
+  PostgreSQL tests with `.env` loading disabled before collection. Three new
+  SGML tests cover real parameter/command xrefs, catalog captions/parent paths,
+  and filtered reference-only sections without shifting legacy sibling IDs.
+- Initial Ruff check found formatting and a missing explicit zip mode; fixed
+  those and completed the ID-filter regression assertions. Focused parser/review
+  checks then passed **5/5**; Ruff (`src tests scripts`) and mypy (`src tests`)
+  pass. Those checks were repeated only for the failures/follow-ups. Full suite
+  was not repeated.
+- PR #4 is checked after pushing. It remains unmerged; Phase 4 has not started.

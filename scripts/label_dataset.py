@@ -35,6 +35,12 @@ def _show_evidence(row: dict[str, Any]) -> None:
 
 def review(args: argparse.Namespace) -> int:
     candidates = _read_jsonl(args.candidates)
+    selected = set(getattr(args, "ids", "").split(",")) - {""}
+    if selected:
+        available = {str(row.get("id")) for row in candidates}
+        if not selected <= available:
+            raise ValueError(f"Unknown candidate IDs: {sorted(selected - available)}")
+        candidates = [row for row in candidates if str(row.get("id")) in selected]
     output = args.output
     reviewed = {str(row.get("id")): row for row in _read_jsonl(output)}
     for candidate in candidates:
@@ -126,6 +132,8 @@ def main() -> int:
         "--candidates", type=Path, default=Path("data/eval/candidates.jsonl")
     )
     review_parser.add_argument("--output", type=Path, default=Path("data/eval/reviewed.jsonl"))
+    review_parser.add_argument("--ids", default="",
+                               help="Comma-separated candidate IDs to review")
     review_parser.set_defaults(function=review)
     write_parser = subparsers.add_parser("write")
     write_parser.add_argument(

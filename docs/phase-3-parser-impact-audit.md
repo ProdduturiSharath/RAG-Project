@@ -1,5 +1,12 @@
 # Bounded Phase 3 parser-impact audit
 
+> Follow-up: the owner-approved identity-preserving repair is now implemented.
+> The legacy identity path is frozen, corrected display paths/captions are
+> separate, and meaningful xref labels are restored. See the latest status
+> section, `data/eval/parser-repair-impact.json`, and
+> [`phase-3-evidence-changes.md`](phase-3-evidence-changes.md). Findings below
+> describe the pre-repair baseline, not the repaired source.
+
 Scope: the **11 flagged candidates**, **six extra candidates**, and three
 examples of table-title overwrite. Inspected the existing parsed records and
 corresponding local SGML only. No parser/source changes, re-ingestion, embedding

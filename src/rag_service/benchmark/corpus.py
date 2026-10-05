@@ -51,6 +51,7 @@ class SourceRecord:
     source_line: int
     table_rows: tuple[tuple[str, ...], ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    caption: str = ""
 
     def to_json(self) -> dict[str, Any]:
         value = asdict(self)
@@ -74,6 +75,7 @@ class SourceRecord:
                 tuple(str(cell) for cell in row) for row in value.get("table_rows", [])
             ),
             metadata=dict(value.get("metadata", {})),
+            caption=str(value.get("caption", "")),
         )
 
 
@@ -301,7 +303,9 @@ def _rows_to_text(rows: tuple[tuple[str, ...], ...]) -> str:
     return "\n".join(lines)
 
 
-def parse_postgresql_source(source_dir: str | Path, version: str) -> list[SourceRecord]:
+def parse_postgresql_source(
+    source_dir: str | Path, version: str, *, impact: dict[str, Any] | None = None,
+) -> list[SourceRecord]:
     """Parse all SGML files in one extracted PostgreSQL source tree."""
 
     root = Path(source_dir)
@@ -309,12 +313,11 @@ def parse_postgresql_source(source_dir: str | Path, version: str) -> list[Source
         root = root / "doc" / "src" / "sgml"
     if not root.is_dir():
         raise FileNotFoundError(f"PostgreSQL SGML directory not found: {root}")
-    records: list[SourceRecord] = []
-    for path in sorted(root.rglob("*.sgml")):
-        collector = _SgmlCollector(version, path.relative_to(root).as_posix())
-        collector.feed(path.read_text(encoding="utf-8", errors="replace"))
-        collector.close()
-        records.extend(collector.nodes)
+    # The legacy collector remains the identity authority. Rendering changes
+    # cannot change its path/record-count-dependent fallback IDs.
+    from .sgml_display import parse_preserving_identities
+
+    records = parse_preserving_identities(root, version, impact=impact)
     records.sort(key=lambda item: (item.source_file, item.source_line, item.kind, item.text))
     return records
 

@@ -72,12 +72,14 @@ def main() -> int:
     )
     parser.add_argument("--database-url", default=os.getenv("RAG_EVAL_DATABASE_URL", ""))
     parser.add_argument("--embedder", default="bge-small")
+    parser.add_argument("--use-source", action="store_true",
+                        help="Ingest the guarded full source artifact rather than reparsing")
     parser.add_argument("--output", type=Path, default=Path("data/eval/ingestion_metrics.json"))
     args = parser.parse_args()
     if not args.database_url:
         raise ValueError("set RAG_EVAL_DATABASE_URL or pass --database-url")
     _require_evaluation_database(args.database_url)
-    if args.processed_dir.exists():
+    if args.processed_dir.exists() and not args.use_source:
         records = []
         for version in ("pg-15", "pg-16", "pg-17"):
             records.extend(parse_postgresql_source(args.processed_dir / version, version))
@@ -112,6 +114,8 @@ def main() -> int:
                 section_id=record.lineage_key,
                 lineage_key=record.lineage_key,
                 kind=record.kind,
+                metadata={**record.metadata, "display_title": record.title,
+                          "table_caption": record.caption},
                 source=SourceLocation(
                     uri=f"https://www.postgresql.org/docs/{version.removeprefix('pg-')}/",
                     metadata={"source_file": record.source_file, "source_line": record.source_line},

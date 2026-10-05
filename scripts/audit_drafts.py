@@ -88,6 +88,13 @@ def main() -> None:
                  candidate_splits=dict(Counter(r["split"] for r in rows)),
                  blind_families=len(blind_families),
                  blind_families_preserved_since_approved_migration=True)
+    repair_path = root / "parser-repair-impact.json"
+    if repair_path.exists():
+        repair = json.loads(repair_path.read_text())
+        stats.update(parser_repair="parser-repair-impact.json",
+                     parser_repair_changed_quote_ids=repair["changed_quote_ids"],
+                     parser_repair_excluded_new_records=repair["excluded_union"],
+                     parser_repair_ingestion="parser_repair_ingestion_metrics.json")
     stats_path.write_text(json.dumps(stats, indent=2, sort_keys=True) + "\n")
     print(json.dumps(summary, indent=2, sort_keys=True))
 
