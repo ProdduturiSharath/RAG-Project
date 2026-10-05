@@ -1,4 +1,4 @@
-# Seed ACL scenario used by generated ACL candidates and future retrieval tests.
+# Simulated ACL policy for restricted-source benchmark questions.
 principals:
   - id: alice
     groups: [docs-admins, sre]
@@ -21,3 +21,6 @@ restricted_section_titles:
 restricted_requesters:
   - guest
   - external-contractor
+restricted_allowed_groups:
+  - docs-admins
+  - sre

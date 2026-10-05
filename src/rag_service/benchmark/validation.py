@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .corpus import SourceRecord, load_source_records
+from .gold import gold_version_map
 
 TARGET_COUNTS = {
     "factoid": 35,
@@ -105,6 +106,7 @@ def validate_dataset(
 
     records = load_source_records(source_path)
     sources = _source_map(records)
+    gold = gold_version_map(records)
     splits = json.loads(Path(splits_path).read_text(encoding="utf-8"))
     assignments = dict(splits.get("assignments", splits))
     split_lineages: dict[str, set[str]] = defaultdict(set)
@@ -125,6 +127,7 @@ def validate_dataset(
                 f"{row.get('id', '<unknown>')}: lineage does not have its persisted split"
             )
         spans = row.get("evidence_spans", [])
+        span_gold: list[set[str]] = []
         for span in spans if isinstance(spans, list) else []:
             if not isinstance(span, dict):
                 errors.append(f"{row.get('id', '<unknown>')}: evidence span must be an object")
@@ -139,6 +142,19 @@ def validate_dataset(
                 )
             if assignments.get(span_lineage) != split:
                 errors.append(f"{row.get('id', '<unknown>')}: evidence crosses lineage split")
+            if row.get("version_independent"):
+                expected_gold = gold.get((span_lineage, version), [])
+                if span.get("gold_versions") != expected_gold:
+                    errors.append(f"{row.get('id')}: evidence gold_versions mismatch")
+                span_gold.append(set(expected_gold))
+        if row.get("version_independent"):
+            expected_versions = sorted(set.intersection(*span_gold)) if span_gold else []
+            if not expected_versions or row.get("gold_versions") != expected_versions:
+                errors.append(f"{row.get('id')}: missing or incorrect gold_versions")
+            if not isinstance(spans, list) or not any(
+                isinstance(s, dict) and s.get("lineage_key") == lineage for s in spans
+            ):
+                errors.append(f"{row.get('id')}: primary lineage absent from evidence")
         if split not in {"dev", "test"}:
             errors.append(f"{row.get('id', '<unknown>')}: non-dev/test lineage appears in dataset")
         if row.get("author") in {"generated", "llm_drafted"} and row.get("validated"):

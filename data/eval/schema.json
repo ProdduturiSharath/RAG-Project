@@ -50,10 +50,14 @@
     "drafted_by": {"type": "string", "minLength": 1},
     "paraphrased": {"type": "boolean"},
     "version_independent": {"type": "boolean"},
+    "gold_versions": {"type": "array", "uniqueItems": true, "items": {"enum": ["pg-15", "pg-16", "pg-17"]}},
     "evidence_quote": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}
   },
   "allOf": [{
     "if": {"properties": {"author": {"const": "llm_drafted"}}},
     "then": {"properties": {"validated": {"const": false}, "split": {"enum": ["dev", "test"]}}}
+  }, {
+    "if": {"properties": {"version_independent": {"const": true}}},
+    "then": {"required": ["gold_versions"], "properties": {"gold_versions": {"minItems": 1}}}
   }]
 }

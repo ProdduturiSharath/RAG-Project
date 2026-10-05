@@ -1,0 +1,19 @@
+{
+  "accepted": 25,
+  "accepted_by_type": {
+    "acl": 4,
+    "multi_hop": 11,
+    "version_specific": 10
+  },
+  "batch": "batch_007.json",
+  "corrected_failures": [
+    {
+      "reason": "quote absent from full source",
+      "row": 1,
+      "type": "multi_hop"
+    }
+  ],
+  "discarded": 0,
+  "discarded_by_type": {},
+  "reasons": []
+}

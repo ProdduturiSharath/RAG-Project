@@ -27,6 +27,7 @@ def main() -> None:
     for row in rows:
         checked = importer.accept(row, seen)
         assert checked["evidence_spans"] == row["evidence_spans"], row["id"]
+        assert checked["gold_versions"] == row["gold_versions"], row["id"]
         assert row["author"] == "llm_drafted" and row["validated"] is False
     # The pre-session commit is the immutable reference for the owner's pool.
     baseline = json.loads(subprocess.check_output(
@@ -47,8 +48,13 @@ def main() -> None:
     for report in reports:
         discarded.update(report["discarded_by_type"])
     counts = Counter(r["type"] for r in rows)
+    revisions = json.loads((root / "drafts" / "revisions.json").read_text())
     summary = {
         "accepted": len(rows), "discarded": sum(discarded.values()),
+        "removed_after_import": dict(Counter(r["type"] for r in revisions
+                                             if r["action"] == "remove")),
+        "acl_cases": dict(Counter("allowed" if r["acl_allowance"] else "denied"
+                                  for r in rows if r["type"] == "acl")),
         "by_type": {kind: {"accepted": counts[kind], "discarded": discarded[kind],
                            "target": target, "remaining": max(0, target - counts[kind])}
                     for kind, target in TARGET_COUNTS.items()},

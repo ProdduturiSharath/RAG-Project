@@ -1,9 +1,13 @@
+import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
-from rag_service.benchmark.corpus import SourceRecord
+from rag_service.benchmark.corpus import SourceRecord, write_source_records
+from rag_service.benchmark.dataset import write_jsonl
 from rag_service.benchmark.drafts import DraftImporter
+from rag_service.benchmark.validation import validate_dataset
 
 
 def source(lineage: str = "setting", text: str = "The default\n  is 4MB.") -> SourceRecord:
@@ -85,3 +89,20 @@ def test_rejects_changed_lineage_claimed_as_version_independent() -> None:
     importer = DraftImporter([source(), other], {"setting": "dev"})
     with pytest.raises(ValueError, match="version-independent source has changed"):
         importer.accept(draft(), set())
+
+
+def test_gold_versions_use_full_text_and_validator_requires_complete_list(tmp_path: Any) -> None:
+    records = [source(), replace(source(), version="pg-16"), replace(source(), version="pg-17")]
+    importer = DraftImporter(records, {"setting": "dev"})
+    row = importer.accept(draft(), set())
+    assert row["gold_versions"] == ["pg-15", "pg-16", "pg-17"]
+    assert row["evidence_spans"][0]["gold_versions"] == row["gold_versions"]
+    write_source_records(records, tmp_path / "source.jsonl")
+    (tmp_path / "splits.json").write_text(json.dumps({"assignments": {"setting": "dev"}}))
+    write_jsonl([row], tmp_path / "rows.jsonl")
+    assert validate_dataset(tmp_path / "rows.jsonl", tmp_path / "source.jsonl",
+                            tmp_path / "splits.json", require_targets=False)["valid"]
+    row["gold_versions"] = ["pg-15"]
+    write_jsonl([row], tmp_path / "rows.jsonl")
+    assert not validate_dataset(tmp_path / "rows.jsonl", tmp_path / "source.jsonl",
+                                tmp_path / "splits.json", require_targets=False)["valid"]

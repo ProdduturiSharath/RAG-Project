@@ -1,0 +1,4 @@
+[
+  {"action":"remove","original_question":"Which settings let me force a fresh custom plan for each prepared-statement execution and estimate the disk cache available to a query?","type":"multi_hop","reason":"Two independent facts do not form a connected multi-hop question."},
+  {"action":"rewrite","original_question":"Which setting controls the join-count threshold for genetic query optimization, and which SQL function can read its current value?","type":"multi_hop","reason":"Resolve the behavior to its setting, then use that setting as the SQL function argument.","replacement":{"question":"What SQL expression reads the current join-count threshold at which PostgreSQL switches to genetic query optimization?","expected_answer":"current_setting('geqo_threshold')","reasoning_chain":"The GEQO behavior identifies geqo_threshold; current_setting reads the value of that identified setting."}}
+]

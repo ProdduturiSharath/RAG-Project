@@ -1,7 +1,8 @@
 # Question drafting rules
 
 The NVIDIA API is dropped. Draft questions directly with the session model;
-do not call an external model/API or read `.env`. Do not use a script, template,
+do not call an external model/LLM API or read `.env`. Git and `gh` are allowed.
+Do not use a script, template,
 or generator to produce questions. Read each passage and write each question.
 Do not inspect retrieval results or retrieval code while drafting.
 
@@ -18,7 +19,16 @@ Do not inspect retrieval results or retrieval code while drafting.
   and set `version_independent=false`.
 - Factoid and identifier: sections defining a parameter, function, or setting.
 - Table: table chunks. Multi-hop: two related sections of the same version.
+- Multi-hop must be one connected question whose answer requires both passages,
+  with the second fact depending on the first; never independent questions
+  joined by “and”. Store a short `reasoning_chain` for review.
 - ACL: restricted sections specified in `data/acl_demo.yaml`.
+- Include allowed requesters as well as denied ones: add up to four allowed
+  cases when the existing pool is all denied, and report both counts.
+- Every `version_independent=true` row stores its primary `lineage_key` and
+  `gold_versions`, computed by comparing full evidence-source text across
+  versions. Multi-hop rows use the intersection for both sources; each evidence
+  span also stores its own gold versions. This is bookkeeping, not generation.
 
 ## Question and evidence requirements
 
@@ -50,3 +60,6 @@ Do not inspect retrieval results or retrieval code while drafting.
   `paraphrased`, `version_independent`, and `validated=false`.
 - At a context-limit stopping point, commit and push, and record exactly which
   batches are complete and what remains in `docs/status.md`.
+- Complete the remaining batches in this session. Show samples/report only at
+  the end; an earlier stop is allowed only past the 85% context checkpoint.
+- Check PR #4 CI with `gh` after pushing; do not merge it or start Phase 4.

@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from typing import Any
 
 from .corpus import SourceRecord
+from .gold import gold_version_map
 from .validation import TARGET_COUNTS
 
 MODEL = "omnirush/gpt-6-astra"
@@ -55,6 +56,7 @@ class DraftImporter:
             if key not in changed and len({tuple(v) for v in versions.values()}) == 1
         }
         self.acl = acl or {}
+        self.gold = gold_version_map(records)
         self.corpus_text = "\n".join(r.text for r in records).casefold()
 
     def accept(self, draft: dict[str, Any], seen: set[str]) -> dict[str, Any]:
@@ -121,6 +123,8 @@ class DraftImporter:
                 "source_file": record.source_file, "source_line": record.source_line,
                 "section_id": record.section_id, "section_path": list(record.section_path),
                 "kind": record.kind, "start_char": start, "end_char": end,
+                "gold_versions": (self.gold[source_key, source_version]
+                                  if draft["version_independent"] else []),
             })
         if answerable and not spans:
             raise ValueError("answerable question requires evidence")
@@ -162,10 +166,22 @@ class DraftImporter:
                     raise ValueError("unavailable identifier exists in requested version")
             else:
                 raise ValueError("unanswerable requires an absence-check identifier")
-        if kind == "acl" and draft.get("requester") not in self.acl.get(
-            "restricted_requesters", []
-        ):
-            raise ValueError("ACL requester is not configured as restricted")
+        acl_allowance = True
+        if kind == "acl":
+            requester = draft.get("requester")
+            principals = {p["id"]: p for p in self.acl.get("principals", [])}
+            if requester in self.acl.get("restricted_requesters", []):
+                acl_allowance = False
+            elif requester in principals and set(principals[requester].get("groups", [])) & set(
+                self.acl.get("restricted_allowed_groups", [])
+            ):
+                acl_allowance = True
+            else:
+                raise ValueError("ACL requester has no configured policy")
+            if draft.get("acl_allowance", acl_allowance) != acl_allowance:
+                raise ValueError("ACL allowance disagrees with requester policy")
+        gold_versions = (sorted(set.intersection(*(set(s["gold_versions"]) for s in spans)))
+                         if draft["version_independent"] and spans else [])
         digest = hashlib.sha256(key.encode()).hexdigest()[:16]
         row = dict(draft)
         row.update({
@@ -175,7 +191,7 @@ class DraftImporter:
             "evidence_quote": ([s["quote"] for s in spans] if len(spans) > 1
                                else spans[0]["quote"] if spans else ""),
             "requester": draft.get("requester", "benchmark-user"),
-            "acl_allowance": kind != "acl",
+            "acl_allowance": acl_allowance, "gold_versions": gold_versions,
         })
         seen.add(key)
         return row
