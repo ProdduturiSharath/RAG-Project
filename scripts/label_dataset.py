@@ -25,6 +25,11 @@ def _append(path: Path, row: dict[str, Any]) -> None:
         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def _read_ids_file(path: Path) -> set[str]:
+    return {line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()}
+
+
 def _show_evidence(row: dict[str, Any]) -> None:
     fields = ("id", "question", "type", "expected_answer", "target_version", "split")
     print(json.dumps({key: row.get(key) for key in fields}, indent=2))
@@ -36,6 +41,8 @@ def _show_evidence(row: dict[str, Any]) -> None:
 def review(args: argparse.Namespace) -> int:
     candidates = _read_jsonl(args.candidates)
     selected = set(getattr(args, "ids", "").split(",")) - {""}
+    if getattr(args, "ids_file", None):
+        selected.update(_read_ids_file(args.ids_file))
     if selected:
         available = {str(row.get("id")) for row in candidates}
         if not selected <= available:
@@ -134,6 +141,8 @@ def main() -> int:
     review_parser.add_argument("--output", type=Path, default=Path("data/eval/reviewed.jsonl"))
     review_parser.add_argument("--ids", default="",
                                help="Comma-separated candidate IDs to review")
+    review_parser.add_argument("--ids-file", type=Path, default=None,
+                               help="File containing one candidate ID per line")
     review_parser.set_defaults(function=review)
     write_parser = subparsers.add_parser("write")
     write_parser.add_argument(
