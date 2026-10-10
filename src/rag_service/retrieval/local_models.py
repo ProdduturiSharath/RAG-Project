@@ -21,12 +21,14 @@ def embedding_text(chunk: Chunk, prefixed: bool) -> str:
 
 class SentenceTransformerEncoder:
     def __init__(self, model_name: str = "bge-small", *, batch_size: int = 32,
-                 metadata_prefixed: bool = False, model: Any = None) -> None:
+                 metadata_prefixed: bool = False, query_instruction: bool = True,
+                 model: Any = None) -> None:
         from sentence_transformers import SentenceTransformer
 
         self.model_name = BGE_MODELS.get(model_name, model_name)
         self.batch_size = batch_size
         self.metadata_prefixed = metadata_prefixed
+        self.query_instruction = query_instruction
         self.model = model
         self._model_type = SentenceTransformer
         self.dimensions = self._model_dimensions(model) if model is not None else 0
@@ -52,7 +54,8 @@ class SentenceTransformerEncoder:
         return tuple(tuple(float(x) for x in row) for row in values)
 
     def embed_query(self, query: str) -> tuple[float, ...]:
-        return self.embed((QUERY_PREFIX + query,))[0]
+        prefix = QUERY_PREFIX if self.query_instruction else ""
+        return self.embed((prefix + query,))[0]
 
     def embed_chunks(self, chunks: Sequence[Chunk]) -> tuple[tuple[float, ...], ...]:
         return self.embed(tuple(

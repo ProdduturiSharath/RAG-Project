@@ -6,7 +6,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .fusion import fuse
@@ -22,6 +22,12 @@ class RetrievalConfig:
     rerank_top_n: int = 30
     version_mode: str = "none"
     parent_expansion: bool = True
+    search_mode: str = "hybrid"
+    persist_traces: bool = True
+
+    def __post_init__(self) -> None:
+        if self.search_mode not in {"hybrid", "dense", "sparse"}:
+            raise ValueError("search_mode must be hybrid, dense, or sparse")
 
 
 class HybridRetriever:
@@ -87,20 +93,33 @@ class HybridRetriever:
             return result
 
         started = time.perf_counter()
-        dense_vector = await self._query_vector(query)
-        dense = await asyncio.to_thread(
-            self._dense_search, dense_vector, candidate_k, scope.filters
-        )
-        traces.append(self._trace("dense", dense, started, {"candidate_k": candidate_k}))
+        dense = ()
+        if self.config.search_mode != "sparse":
+            dense_vector = await self._query_vector(query)
+            dense = await asyncio.to_thread(
+                self._dense_search, dense_vector, candidate_k, scope.filters
+            )
+        traces.append(self._trace("dense", dense, started, {
+            "candidate_k": candidate_k, "enabled": self.config.search_mode != "sparse",
+        }))
 
         started = time.perf_counter()
-        sparse = await asyncio.to_thread(
-            self._sparse_search, query, candidate_k, scope.filters
-        )
-        traces.append(self._trace("sparse", sparse, started, {"candidate_k": candidate_k}))
+        sparse = ()
+        if self.config.search_mode != "dense":
+            sparse = await asyncio.to_thread(
+                self._sparse_search, query, candidate_k, scope.filters
+            )
+        traces.append(self._trace("sparse", sparse, started, {
+            "candidate_k": candidate_k, "enabled": self.config.search_mode != "dense",
+        }))
 
         started = time.perf_counter()
-        fused = fuse(dense, sparse, method=self.config.fusion, alpha=alpha)[:candidate_k]
+        if self.config.search_mode == "hybrid":
+            fused = fuse(dense, sparse, method=self.config.fusion, alpha=alpha)[:candidate_k]
+        else:
+            component = "dense_score" if self.config.search_mode == "dense" else "sparse_score"
+            fused = tuple(replace(item, hybrid_score=getattr(item, component), rank=rank)
+                          for rank, item in enumerate(dense or sparse, 1))
         traces.append(self._trace("fusion", fused, started, {
             "method": self.config.fusion,
             "alpha": alpha,
@@ -163,6 +182,8 @@ class HybridRetriever:
         return tuple(expand(matches, filters=filters))
 
     def _save_trace(self, query: str, scope: ScopeResult, result: RetrievalResult) -> None:
+        if not self.config.persist_traces:
+            return
         save = getattr(self.index, "save_trace", None)
         if save is not None:
             save(result.trace_id, query, scope.filters, [

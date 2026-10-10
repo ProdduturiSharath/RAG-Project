@@ -94,7 +94,7 @@ class PostgresHybridIndex:
             JOIN chunk_embeddings ce ON ce.chunk_id=c.id AND ce.embedder_id=%s
             JOIN embeddings e ON e.content_hash=ce.content_hash AND e.embedder_id=ce.embedder_id
             WHERE v.status='active' AND {where}
-            ORDER BY e.embedding <=> %s::vector
+            ORDER BY e.embedding <=> %s::vector, c.chunk_key
             LIMIT %s"""
         values = (vector, self.embedder_id, *params, vector, top_k)
         with self.database.connect() as conn:

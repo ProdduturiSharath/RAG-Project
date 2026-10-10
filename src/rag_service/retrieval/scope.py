@@ -33,11 +33,12 @@ def resolve_scope(
         return ScopeResult(filters, versions=(filters.product_version,))
     # Bare numbers in prose are not version claims. Recognize catalog labels,
     # PostgreSQL/pg/version/v prefixes, and report multi-version questions explicitly.
-    mentions = set(re.findall(r"\b(?:postgresql\s*|pg\s*|version\s+|v)(\d+(?:\.\d+)*)\b",
+    mentions = set(re.findall(r"\b(?:postgresql[\s-]*|pg[\s-]*|version\s+|v)(\d+(?:\.\d+)*)\b",
                               query, flags=re.IGNORECASE))
     matched = [v for v in labels if re.search(r"(?<!\w)" + re.escape(v) + r"(?!\w)",
                                              query, flags=re.IGNORECASE)
-               or re.sub(r"^(?:postgresql\s*|pg|v)", "", v, flags=re.IGNORECASE) in mentions]
+               or re.sub(r"^(?:postgresql[\s-]*|pg[\s-]*|v)", "", v,
+                         flags=re.IGNORECASE) in mentions]
     choices = tuple(matched) if matched else labels
     if len(choices) != 1 or (mentions and not matched):
         return ScopeResult(replace(filters, scopes=()), "ambiguous", choices)

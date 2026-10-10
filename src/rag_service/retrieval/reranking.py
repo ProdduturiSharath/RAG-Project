@@ -9,6 +9,13 @@ from .encoders import tokenize
 from .models import ScoredChunk
 
 
+class NoReranker:
+    """Preserve first-stage order and raw scores for retrieval-only baselines."""
+
+    def rerank(self, query: str, candidates: Sequence[ScoredChunk]) -> tuple[ScoredChunk, ...]:
+        return tuple(candidates)
+
+
 class TokenOverlapReranker:
     """Favor candidates that contain the query's exact terms.
 
