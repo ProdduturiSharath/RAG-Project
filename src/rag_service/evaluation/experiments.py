@@ -64,6 +64,12 @@ def collect_runtime_provenance() -> dict[str, Any]:
         "pytest-asyncio",
         "ruff",
         "uvicorn",
+        "numpy",
+        "jsonschema",
+        "psycopg",
+        "sentence-transformers",
+        "transformers",
+        "torch",
     )
     packages: dict[str, str | None] = {}
     for name in package_names:

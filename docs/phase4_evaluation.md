@@ -83,6 +83,11 @@ All model inference is local on the host. The host may download missing model
 weights; there are no model API calls. Existing ingestion and public tables are
 preserved; content-addressed `phase4_*` schemas hold evaluation snapshots/caches.
 
+The host run also writes `results/phase4_smoke.json`, a 40-question dev cache.
+Commit that measured artifact with the results to activate the offline CI replay
+gate. Before the first host run the cache-dependent CI step is skipped; no
+synthetic retrieval outcomes are substituted for measured ones.
+
 ## SciFact reference
 
 The [official BEIR dataset list](https://github.com/beir-cellar/beir#beers-available-datasets)

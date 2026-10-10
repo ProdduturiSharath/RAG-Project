@@ -19,6 +19,9 @@ jobs:
       - run: mypy src tests
       - run: python -m pytest tests/unit -q
       - run: PYTHONPATH=src python scripts/validate_dataset.py
+      - name: Replay the measured Phase 4 smoke cache
+        if: ${{ hashFiles('results/phase4_smoke.json') != '' }}
+        run: PYTHONPATH=src python -m rag_service.evaluation.run --check-cache results/phase4_smoke.json
 
   integration:
     runs-on: ubuntu-latest

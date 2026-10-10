@@ -24,7 +24,8 @@ def covers(row: Mapping[str, Any], chunk: Mapping[str, Any]) -> frozenset[int]:
     Lineage is deliberately not an extra hit requirement: an equivalent quote
     elsewhere in the corpus is evidence too. Lineage *is* required for confusion.
     """
-    versions = row["gold_versions"] if row["version_independent"] else [row["target_version"]]
+    independent = row["version_independent"] and row.get("type") != "version_specific"
+    versions = row["gold_versions"] if independent else [row["target_version"]]
     if chunk["version"] not in versions:
         return frozenset()
     text = chunk.get("normalized_text")

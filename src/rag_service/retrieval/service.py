@@ -93,7 +93,7 @@ class HybridRetriever:
             return result
 
         started = time.perf_counter()
-        dense = ()
+        dense: tuple[ScoredChunk, ...] = ()
         if self.config.search_mode != "sparse":
             dense_vector = await self._query_vector(query)
             dense = await asyncio.to_thread(
@@ -104,7 +104,7 @@ class HybridRetriever:
         }))
 
         started = time.perf_counter()
-        sparse = ()
+        sparse: tuple[ScoredChunk, ...] = ()
         if self.config.search_mode != "dense":
             sparse = await asyncio.to_thread(
                 self._sparse_search, query, candidate_k, scope.filters

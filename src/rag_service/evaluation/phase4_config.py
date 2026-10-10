@@ -34,7 +34,7 @@ class SystemConfig(BaseModel):
 
     @property
     def embedder_id(self) -> str:
-        name = self.dense_model
+        name: str = self.dense_model
         if name != "hash-v1":
             name += "-en-v1.5"
         return name + ("::metadata-v1" if self.metadata_prefixed else "")
