@@ -594,3 +594,33 @@ original file. Reusing an output containing those IDs will skip them again.
   pass. Those checks were repeated only for the failures/follow-ups. Full suite
   was not repeated.
 - PR #4 is checked after pushing. It remains unmerged; Phase 4 has not started.
+
+## Phase 3 final gold closeout — 2026-10-10
+
+The independent model audit is the validation decision for the 222 candidates:
+212 accepted, 10 rejected, and 0 flagged. `data/eval/gold.jsonl` contains 212
+rows, all with `review_status=accepted` and `validated=true`.
+
+| Type | Gold rows | Human | Model audit | Owner written |
+| --- | ---: | ---: | ---: | ---: |
+| factoid | 34 | 0 | 34 | 0 |
+| exact_identifier | 32 | 0 | 32 | 0 |
+| table | 22 | 0 | 22 | 0 |
+| multi_hop | 12 | 0 | 12 | 0 |
+| version_specific | 48 | 4 | 44 | 0 |
+| unchanged_control | 25 | 0 | 25 | 0 |
+| version_unavailable | 10 | 0 | 10 | 0 |
+| unanswerable | 18 | 0 | 18 | 0 |
+| acl | 11 | 0 | 11 | 0 |
+| **Total** | **212** | **4** | **208** | **0** |
+
+The six historical human reviews remain untouched. Two had parser-repaired
+quotes and therefore fell back to the audit; one of those was rejected. The
+schema now recognizes `review_method` values `human`, `model_audit`, and
+`owner_written`, while ordinary unreviewed drafts remain allowed in
+`candidates.jsonl`. Final-gold validation passes with zero errors. The repaired
+table representation, including intact title/path and separate caption, is in
+[`dataset_card.md`](dataset_card.md).
+
+Phase 4 reports metrics on all gold rows AND separately on human and
+owner_written rows. PR #4 remains open and unmerged; Phase 4 has not started.

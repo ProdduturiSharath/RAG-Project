@@ -228,3 +228,26 @@ The new corpus metrics are pg-15 `7893 sections / 10741 chunks / 459 tables /
 `data/eval/ingestion_metrics.json`.
 
 The existing generated-question artifacts were not regenerated in this follow-up.
+
+## Final gold closeout — 2026-10-10
+
+The independent audit is the validation decision; no additional candidate
+hand-review is required for this closeout. `scripts/build_gold.py` produced
+`data/eval/gold.jsonl` from the 222 candidates, `model_audit.jsonl`, the six
+historical review rows, and the parser-repair impact list. The audit accepted
+212 rows and rejected 10. Gold contains 212 accepted/validated rows: 208
+`model_audit`, 4 `human`, and 0 `owner_written`. The two parser-repaired
+reviewed rows fell back to the audit; `draft-257b83c46f868ef6` is excluded.
+
+| Type | Gold rows | Type | Gold rows |
+| --- | ---: | --- | ---: |
+| factoid | 34 | exact_identifier | 32 |
+| table | 22 | multi_hop | 12 |
+| version_specific | 48 | unchanged_control | 25 |
+| version_unavailable | 10 | unanswerable | 18 |
+| acl | 11 | **Total** | **212** |
+
+Final-gold validation passes with zero errors using
+`PYTHONPATH=src python scripts/validate_dataset.py --dataset data/eval/gold.jsonl --final-gold --allow-incomplete`.
+The table-caption repair is demonstrated in [`dataset_card.md`](dataset_card.md).
+PR #4 remains open and unmerged; Phase 4 has not started.

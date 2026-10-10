@@ -23,6 +23,7 @@ TARGET_COUNTS = {
     "unanswerable": 18,
     "acl": 8,
 }
+REVIEW_METHODS = {"human", "model_audit", "owner_written"}
 REQUIRED_FIELDS = {
     "id",
     "question",
@@ -95,8 +96,15 @@ def validate_dataset(
                     errors.append(f"line {number}: {field} must be boolean")
             if row.get("review_status") not in {None, "accepted", "rejected"}:
                 errors.append(f"line {number}: unknown review_status")
+            if (
+                row.get("review_method") is not None
+                and row.get("review_method") not in REVIEW_METHODS
+            ):
+                errors.append(f"line {number}: unknown review_method")
             if require_final_gold and not is_final_gold(row):
                 errors.append(f"line {number}: final gold requires validated accepted review")
+            if require_final_gold and row.get("review_method") not in REVIEW_METHODS:
+                errors.append(f"line {number}: final gold requires a valid review_method")
             question = _SPACE_RE.sub(" ", str(row.get("question", "")).strip().lower())
             if not question:
                 errors.append(f"line {number}: question is empty")
@@ -192,10 +200,16 @@ def validate_dataset(
             ):
                 errors.append(f"{row.get('id')}: primary lineage absent from evidence")
         if split not in {"dev", "test"} and not (
-            require_final_gold and split == "blind" and row.get("author") == "human"
+            require_final_gold
+            and split == "blind"
+            and row.get("review_method") in {"human", "owner_written"}
         ):
             errors.append(f"{row.get('id', '<unknown>')}: non-dev/test lineage appears in dataset")
-        if row.get("author") in {"generated", "llm_drafted"} and row.get("validated"):
+        if (
+            row.get("author") in {"generated", "llm_drafted"}
+            and row.get("validated")
+            and not (require_final_gold and row.get("review_method") == "model_audit")
+        ):
             errors.append(f"{row.get('id', '<unknown>')}: draft row cannot be validated")
         if row.get("author") == "llm_drafted" and not row.get("drafted_by"):
             errors.append(f"{row.get('id', '<unknown>')}: drafted_by is required")

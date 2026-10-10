@@ -48,6 +48,7 @@
     "author": {"type": "string", "minLength": 1},
     "validated": {"type": "boolean"},
     "review_status": {"enum": ["accepted", "rejected"]},
+    "review_method": {"enum": ["human", "model_audit", "owner_written"]},
     "drafted_by": {"type": "string", "minLength": 1},
     "paraphrased": {"type": "boolean"},
     "version_independent": {"type": "boolean"},
@@ -60,6 +61,14 @@
   }, {
     "if": {"properties": {"version_independent": {"const": true}}},
     "then": {"required": ["gold_versions"], "properties": {"gold_versions": {"minItems": 1}}}
+  }, {
+    "if": {"required": ["review_status"]},
+    "then": {
+      "required": ["review_method"],
+      "properties": {
+        "review_method": {"enum": ["human", "model_audit", "owner_written"]}
+      }
+    }
   }, {
     "if": {"required": ["review_status"], "properties": {"review_status": {"const": "rejected"}}},
     "then": {"properties": {"validated": {"const": false}}}

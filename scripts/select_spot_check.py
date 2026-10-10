@@ -9,7 +9,6 @@ import random
 from pathlib import Path
 from typing import Any
 
-
 TYPES = (
     "factoid",
     "exact_identifier",
