@@ -1,0 +1,14 @@
+{
+  "accepted": 25,
+  "accepted_by_type": {
+    "acl": 2,
+    "exact_identifier": 8,
+    "factoid": 8,
+    "multi_hop": 2,
+    "table": 5
+  },
+  "batch": "batch_002.json",
+  "discarded": 0,
+  "discarded_by_type": {},
+  "reasons": []
+}

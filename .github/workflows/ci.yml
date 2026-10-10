@@ -18,6 +18,7 @@ jobs:
       - run: ruff check src tests
       - run: mypy src tests
       - run: python -m pytest tests/unit -q
+      - run: PYTHONPATH=src python scripts/validate_dataset.py
 
   integration:
     runs-on: ubuntu-latest

@@ -1,0 +1,222 @@
+{"id":"draft-229c3274e4f0153b","decision":"accept","reason":"The PostgreSQL 16 quote explicitly gives a default of 256 kB, and the version-specific question and answer match it."}
+{"id":"draft-0a0f7eeddc1dc6b4","decision":"accept","reason":"The PostgreSQL 17 quote explicitly gives a default of 2MB, and the version-specific question and answer match it."}
+{"id":"draft-d0c080d56602eee6","decision":"accept","reason":"The pg-15 table quote identifies pg_subscription.substream as bool; the question is specific and the answer matches."}
+{"id":"draft-5a6158db8b6f03ae","decision":"accept","reason":"The pg-16 table quote identifies pg_subscription.substream as char; the version-specific answer is supported directly."}
+{"id":"draft-257b83c46f868ef6","decision":"reject","reason":"The question is malformed and unclear: 'Which cache does ... size' does not state a grammatical, answerable relation, although the quote supports the intended topic.","proposed_edit":"Which cache does multixact_member_buffers use in PostgreSQL 17?"}
+{"id":"draft-2698580abdaeb4fb","decision":"accept","reason":"The quote states that unitless values are blocks, typically 8kB, and explicitly gives a default of 16; the answer correctly combines those facts."}
+{"id":"draft-05e120c03871ce0e","decision":"accept","reason":"The quote explicitly says notify_buffers can only be set at server start, matching the focused version-specific question."}
+{"id":"draft-59e8d98dc1e8267d","decision":"accept","reason":"The quote explains that unitless values are blocks and gives a default of 32; the answer is correct."}
+{"id":"draft-9087662e522341da","decision":"accept","reason":"The quote gives the zero default as shared_buffers /512, capped at 1024 and no lower than 16 blocks; the answer accurately paraphrases it."}
+{"id":"draft-aa8fc2079022d8f2","decision":"accept","reason":"The quote directly identifies transaction_buffers as the setting caching pg_xact, and the paraphrased question omits that parameter name."}
+{"id":"draft-bddf9c861df43698","decision":"accept","reason":"The quote says gss_accept_delegation defaults to off and therefore does not accept client credentials by default; the answer is supported."}
+{"id":"draft-0bd01d40748321be","decision":"accept","reason":"The quote directly names pg_use_reserved_connections as the role with the reserved-slot privilege."}
+{"id":"draft-e8b0644e8e09208f","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 15, and the intentionally empty evidence with Not answerable is consistent with a version-unavailable row."}
+{"id":"draft-3ed892aed9650e8f","decision":"accept","reason":"The question plausibly asks about a feature unavailable in PostgreSQL 15, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-8a5c3c534615a5b2","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-9fcd697a1f864ffd","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-06af61f8f1d9b4c5","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-7998047583937dc7","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-cce1087b3faca40f","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-4af5589ecf4f112f","decision":"accept","reason":"The question plausibly asks about a setting unavailable in PostgreSQL 16, and the empty evidence with Not answerable is consistent with the version-unavailable type."}
+{"id":"draft-3abee3e4240c30d3","decision":"accept","reason":"Both version quotes state a four-megabyte default for work_mem, and the answer correctly normalizes that to 4MB."}
+{"id":"draft-a4613d5948483c8b","decision":"accept","reason":"Both quotes state that the hash-table memory limit is work_mem multiplied by hash_mem_multiplier; the paraphrased question omits the parameter names."}
+{"id":"draft-8519e3848b418b0e","decision":"accept","reason":"Both version quotes explicitly give authentication_timeout a default of one minute, matching the answer."}
+{"id":"draft-429294c1f59d9a0d","decision":"accept","reason":"Both version quotes explicitly state that password_encryption defaults to scram-sha-256."}
+{"id":"draft-e3e51f5d6763ce75","decision":"accept","reason":"Both quotes define the p state as pending enablement, so the unchanged-control answer is directly supported."}
+{"id":"draft-72a6ca68b3cc9a79","decision":"accept","reason":"The quote states that genetic query optimization applies at 12 FROM items by default; the all-version gold metadata supports the control framing."}
+{"id":"draft-fe7c47373551e1f9","decision":"accept","reason":"The quote says genetic query optimization is on by default, directly supporting the yes answer and paraphrased wording."}
+{"id":"draft-87debf07597e729e","decision":"accept","reason":"The quote explicitly says the disk-cache estimate does not affect shared memory and is used only for estimation."}
+{"id":"draft-726479d61ef63073","decision":"accept","reason":"The quote explicitly says a custom two-part option is a placeholder with no function until its defining module loads."}
+{"id":"draft-01a4d6e0f0304ddf","decision":"accept","reason":"The quote gives default_statistics_target a default of 100, and the all-version metadata supports the version-independent row."}
+{"id":"draft-6ba16d7f09a34d1a","decision":"accept","reason":"The quote explicitly says an empty dynamic_library_path disables automatic path searching."}
+{"id":"draft-6fac87bdd97f3aa2","decision":"accept","reason":"The quote requires geqo_effort to be an integer from 1 through 10, inclusive."}
+{"id":"draft-0f45b9b2c16c8399","decision":"reject","reason":"The question gives the answer as one of its explicit alternatives: 'prepared or executed'; executed is therefore leaked.","proposed_edit":"At what stage is plan_cache_mode checked for a cached plan?"}
+{"id":"draft-04bed6e03d843c85","decision":"accept","reason":"The quote identifies seq_page_cost as the estimate for sequential disk-page fetches, and the paraphrased question omits the parameter name."}
+{"id":"draft-7e99e7754ab47a6e","decision":"accept","reason":"The quote identifies random_page_cost as the estimate for non-sequential disk-page fetches, and the paraphrased question omits the parameter name."}
+{"id":"draft-e398aff8b12b8386","decision":"accept","reason":"The quote identifies effective_cache_size as the planner's assumed disk cache available to one query, and the paraphrased question omits the name."}
+{"id":"draft-4c4dd0f81faebe0c","decision":"accept","reason":"The quote identifies default_statistics_target as the default target for columns without a column-specific target, and the paraphrased question omits the name."}
+{"id":"draft-67e87ec3b431336a","decision":"accept","reason":"The quote explicitly says geqo_threshold provides more granular control than turning GEQO off."}
+{"id":"draft-e07b8887e577f7dc","decision":"accept","reason":"The quote explicitly gives the command pg_config --pkglibdir, which supplies the requested option."}
+{"id":"draft-a55801054ab59424","decision":"reject","reason":"The answer plpgsql is leaked verbatim in the question as the prefix of plpgsql.variable_conflict, violating the no-answer-leak requirement.","proposed_edit":"Which extension name prefixes a custom option whose parameter name is variable_conflict?"}
+{"id":"draft-fb8ee8b3f12814f4","decision":"accept","reason":"The quote lists force_generic_plan as the value for a reusable plan that does not rely on parameter values; the exact-identifier question is clear."}
+{"id":"draft-51a8ac7c7fbf24a6","decision":"accept","reason":"The table quote defines amtype i as an index access method, directly supporting the answer."}
+{"id":"draft-46d7b08da0421236","decision":"accept","reason":"The pg_amop table quote explicitly defines amoppurpose and its s/o meanings, matching the answer."}
+{"id":"draft-e820f3d44e640bde","decision":"accept","reason":"The table quote explicitly says rolconnlimit -1 means no limit on concurrent connections."}
+{"id":"draft-14d3ffdd0bfc1fc6","decision":"accept","reason":"The table quote says evtenabled A makes the event trigger fire always, which answers every mode."}
+{"id":"draft-b7ed78b00d822ab1","decision":"accept","reason":"The table quote directly identifies extrelocatable as true when an extension can be relocated to another schema."}
+{"id":"draft-29bf0d3d09985e6f","decision":"accept","reason":"This genuinely requires both quotes: one identifies the threshold setting and the other maps a setting name to current_setting; the paraphrased question omits the parameter name."}
+{"id":"draft-c945cdba461dca1f","decision":"accept","reason":"The quote establishes that ALTER ROLE supplies user-specific overrides over per-database defaults; guest is correctly denied by the restricted-section policy."}
+{"id":"draft-5b85563cf2452f94","decision":"accept","reason":"The quote directly states that unrecognized extension-prefixed placeholders cause warnings and are removed; external-contractor is correctly denied by policy."}
+{"id":"draft-83c69c27193b58b7","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-1abe255f229e268b","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-6f4929de9367e42a","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-5d74fb64199119f0","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-0c15500721177a0a","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-4a7b9f73c8a7f5aa","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-a38fd43c662225d4","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-b65a19d604a3ddc2","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-c50e823b023148e3","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-bd39bd6671784107","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-b3580b4f946ba86f","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-c6c64f78c483903c","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-873aeffbe19b5c5d","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-b70e5a0b29c0b2be","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-0c72c653bc5b8202","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-5a3149e2570cc9b1","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-2f41630f88c8b555","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-cd3af2e5f1fe27b9","decision":"accept","reason":"The invented identifier is present in the question but absent from every corpus section, making this plausible unanswerable item valid."}
+{"id":"draft-b743fb0b1b3a0ea1","decision":"accept","reason":"The quote directly states which schemas to remove, and guest is correctly denied access to this restricted Database Roles section."}
+{"id":"draft-5d01c76354d7d4ea","decision":"accept","reason":"The quote directly limits creation of unchecked-memory-access language functions to superusers; external-contractor is correctly denied by policy."}
+{"id":"draft-87f2cac4e6f7cc95","decision":"accept","reason":"The quote explicitly says ALTER DATABASE and ALTER ROLE values apply when a fresh database session starts; guest is correctly denied by policy."}
+{"id":"draft-cea3f4b3e8881ae8","decision":"accept","reason":"The quote explicitly identifies superusers and users with SET privilege and says the setting lasts until the client connection ends; external-contractor is correctly denied."}
+{"id":"draft-ae16a04944d3193b","decision":"accept","reason":"The quote explicitly says a FULL OUTER JOIN counts as one FROM item; guest is correctly denied access to the restricted section."}
+{"id":"draft-ed5c8b8a7ae16483","decision":"accept","reason":"The quote explicitly says any two-part parameter name is accepted as a placeholder before module load; external-contractor is correctly denied by policy."}
+{"id":"draft-8f4a85f137b30a4b","decision":"reject","reason":"The question supplies the requested catalog and asks for its entry, effectively leaking the answer pg_proc.oid before the evidence is read.","proposed_edit":"What object identifier does pg_am.amhandler store for its handler function?"}
+{"id":"draft-3797673671fc1771","decision":"accept","reason":"The quote explicitly says relative TLS certificate paths are relative to the data directory, and the paraphrased question omits the parameter name."}
+{"id":"draft-a69ff2ec4e45d4ee","decision":"accept","reason":"The quote explicitly states the default minimum SSL/TLS protocol is TLSv1.2, and the paraphrased question omits the parameter name."}
+{"id":"draft-0c3e3fe9fd50f266","decision":"accept","reason":"The quote explicitly says autovacuum still launches when needed for transaction-ID wraparound even when the setting is disabled; the paraphrased question omits the setting name."}
+{"id":"draft-75f0b54b7c800621","decision":"accept","reason":"The quote explicitly gives a one-minute minimum delay between autovacuum runs for a database, and the paraphrased question omits the parameter name."}
+{"id":"draft-02592cdaa418a991","decision":"accept","reason":"The quote says the GEQO pool must be at least two individuals, directly supporting the answer and paraphrased wording."}
+{"id":"draft-434bc40422c18e75","decision":"accept","reason":"The quote explicitly says setting jit_above_cost to -1 disables JIT compilation, and the paraphrased question omits the parameter name."}
+{"id":"draft-740f8eb119fc01a7","decision":"accept","reason":"The quote explicitly says %f is replaced by the archive name, with base.tar as an example; the answer matches."}
+{"id":"draft-98b04fd02814ff16","decision":"accept","reason":"The quote explicitly restricts the %d target detail to alphanumeric characters for security reasons."}
+{"id":"draft-04f612df93f57f51","decision":"accept","reason":"The quote explicitly says -1 prevents autovacuum from triggering VACUUM based on inserted-tuple counts."}
+{"id":"draft-449d84c81add9535","decision":"accept","reason":"The quote explicitly says an empty ssl_ca_file loads no CA file and does not perform client certificate verification."}
+{"id":"draft-6a52c545b09efc02","decision":"accept","reason":"The quote explicitly says the default ssl_max_protocol_version allows any protocol version, so there is no upper limit."}
+{"id":"draft-826bd7733c5466a3","decision":"accept","reason":"The quote explicitly says setting auto_explain.log_min_duration to zero logs all plans."}
+{"id":"draft-aaf9a56514c47f0f","decision":"accept","reason":"The quote explicitly says changing postgres_fdw.application_name does not affect existing connections until they are re-established."}
+{"id":"draft-ae1c48f8b9444d4d","decision":"accept","reason":"The quote directly identifies autovacuum_max_workers as the maximum number of autovacuum processes other than the launcher, and the paraphrased question omits the name."}
+{"id":"draft-f643414430702671","decision":"accept","reason":"The quote directly identifies autovacuum_naptime as the minimum delay between runs on a database, and the paraphrased question omits the name."}
+{"id":"draft-16dbda44b7eb794d","decision":"accept","reason":"The quote directly identifies ssl_min_protocol_version as setting the minimum SSL/TLS protocol, and the paraphrased question omits the name."}
+{"id":"draft-e5b5f0b94a5943be","decision":"accept","reason":"The quote directly identifies ssl_ca_file as the server certificate-authority file setting, and the paraphrased question omits the name."}
+{"id":"draft-04d7229796c8b1c4","decision":"accept","reason":"The quote directly identifies geqo_seed as controlling the initial random-generator value, and the paraphrased question omits the name."}
+{"id":"draft-9259c2f67643c63c","decision":"accept","reason":"The quote directly identifies jit_optimize_above_cost as the threshold for expensive JIT optimizations, and the paraphrased question omits the name."}
+{"id":"draft-dc15d3e692b1975b","decision":"accept","reason":"The quote directly identifies autovacuum_vacuum_scale_factor as the fraction added to autovacuum_vacuum_threshold."}
+{"id":"draft-aa2a6835a8d2048a","decision":"accept","reason":"The quote directly identifies autovacuum_analyze_scale_factor as the fraction added to autovacuum_analyze_threshold."}
+{"id":"draft-e0141266fb4b67fd","decision":"accept","reason":"The quote explicitly gives server.crt as ssl_cert_file's default filename."}
+{"id":"draft-d6e0aa7e862b2a67","decision":"accept","reason":"The quote directly says turning off auto_explain.log_timing reduces the performance cost of log_analyze."}
+{"id":"draft-65e6f748fb6aae42","decision":"reject","reason":"The question supplies both components of the answer identifier: basebackup_to_shell and the required role, effectively leaking basebackup_to_shell.required_role.","proposed_edit":"Which setting names the role required to use the shell backup target?"}
+{"id":"draft-6fbfccd6a592757b","decision":"reject","reason":"The answer application_name is stated verbatim inside the question as postgres_fdw.application_name, so the question leaks the requested identifier.","proposed_edit":"Which option of the server object does the postgres_fdw application-name setting override?"}
+{"id":"draft-34a0125aa746a04d","decision":"accept","reason":"The quote explicitly says SPI functions are unavailable while the initial Perl interpreter setup code executes, matching the paraphrased yes/no question."}
+{"id":"draft-f6230c72256e44d0","decision":"accept","reason":"The quote explicitly says an initialization error aborts the current transaction or subtransaction, matching the paraphrased question."}
+{"id":"draft-e641bed40e3d8cb7","decision":"accept","reason":"The quote explicitly requires printing the passphrase to standard output and exiting with code 0."}
+{"id":"draft-9b1f37bc7842b40e","decision":"accept","reason":"The quote explicitly says the ECDH curve need not equal the server key's elliptic-curve choice."}
+{"id":"draft-db17ab26727dca15","decision":"accept","reason":"The quote says nested statements are only considered when the setting is enabled and that it is off by default, supporting the no answer."}
+{"id":"draft-4b2f4b62ab512fa7","decision":"accept","reason":"The quote explicitly says nested statements are either all explained or none, so sampling cannot select only some from a call."}
+{"id":"draft-28e5c7d6609fd5c0","decision":"accept","reason":"The quote explicitly limits automatic-plan output to planning-related options whose values differ from built-in defaults."}
+{"id":"draft-07b1afb9ec4b0d65","decision":"accept","reason":"The quote explicitly says a zero geqo_generations value selects a suitable number based on geqo_pool_size."}
+{"id":"draft-4a2acbfadfd11c79","decision":"accept","reason":"The quote explicitly gives geqo_selection_bias's allowed range as 1.50 through 2.00."}
+{"id":"draft-87f65abbecde83c5","decision":"accept","reason":"The quote explicitly identifies the default autovacuum_freeze_max_age as 200 million transactions."}
+{"id":"draft-8b0c819495abc63d","decision":"accept","reason":"The quote explicitly lists text, xml, json, and yaml as the allowed auto_explain.log_format values."}
+{"id":"draft-e62fe96e800e3518","decision":"accept","reason":"The quote explicitly says that with support for reload off, the passphrase command is ignored and SSL configuration is not reloaded when needed."}
+{"id":"draft-f8067fae5e954809","decision":"accept","reason":"The quote explicitly says external_pid_file can only be set at server start."}
+{"id":"draft-7da3017f4660421c","decision":"accept","reason":"The quote explicitly says config_file can only be set on the postgres command line."}
+{"id":"draft-3b18c553103442c0","decision":"accept","reason":"The quote directly identifies hba_file as the host-based-authentication configuration-file setting, and the paraphrased question omits the name."}
+{"id":"draft-32068527036ef646","decision":"accept","reason":"The quote directly identifies ident_file as the user-name-mapping configuration-file setting, and the paraphrased question omits the name."}
+{"id":"draft-075ca91502323325","decision":"accept","reason":"The quote directly identifies external_pid_file as the additional server PID-file setting, and the paraphrased question omits the name."}
+{"id":"draft-7c3fea84a25ace0d","decision":"accept","reason":"The quote directly identifies auto_explain.log_nested_statements as the setting that includes function-internal statements, and the paraphrased question omits the name."}
+{"id":"draft-478e0839a9cb3cd9","decision":"accept","reason":"The quote directly identifies plperl.on_init as the setting for code run at first Perl-interpreter initialization, and the paraphrased question omits the name."}
+{"id":"draft-dadefc52fd565605","decision":"accept","reason":"The quote explicitly gives prime256v1 as the default ssl_ecdh_curve value."}
+{"id":"draft-cfd5bc79c39250bf","decision":"accept","reason":"The quote explicitly says %p is replaced by the passphrase prompt string."}
+{"id":"draft-c29f7e05509fbf15","decision":"accept","reason":"The quote explicitly says auto_explain.log_triggers has no effect unless auto_explain.log_analyze is enabled."}
+{"id":"draft-feec37f04aa4e773","decision":"accept","reason":"The quote explicitly gives text as the default auto_explain.log_format."}
+{"id":"draft-03c3d795b855d0b7","decision":"accept","reason":"The quote explicitly says %% is replaced by a single literal percent sign."}
+{"id":"draft-f386cd5e754904f6","decision":"accept","reason":"The quote explicitly identifies pg_class.relfrozenxid as the field bounded by autovacuum_freeze_max_age."}
+{"id":"draft-a8b88c7a25650d7b","decision":"accept","reason":"The table quote directly gives pg_amproc.amprocnum the int2 data type."}
+{"id":"draft-9e7436a1df861232","decision":"accept","reason":"The table quote explicitly says pg_amproc.amproc references pg_proc.oid."}
+{"id":"draft-c606806c6ba4b0ef","decision":"accept","reason":"The table quote directly identifies rolbypassrls as the column for bypassing every row-level security policy."}
+{"id":"draft-c47f72b437790e83","decision":"accept","reason":"The table quote explicitly says a null rolvaliduntil means no password expiration."}
+{"id":"draft-f5b30f5158e8e202","decision":"accept","reason":"The table quote explicitly says pg_extension.extconfig is NULL when there are no configuration tables."}
+{"id":"draft-70f42365725e5d42","decision":"accept","reason":"The table quote explicitly defines pg_extension.extcondition as text[] WHERE-clause filters, or NULL when none exist."}
+{"id":"draft-e330705d948f0b56","decision":"accept","reason":"The table quote explicitly says NULL evttags imposes no command-tag restriction."}
+{"id":"draft-d1aca811f0bf1306","decision":"reject","reason":"The question gives the answer as one of its explicit alternatives: 'mandatory or optional'; optional is therefore leaked.","proposed_edit":"What requirement does pg_foreign_server.srvtype have?"}
+{"id":"draft-67c6bd3e26cbdb64","decision":"accept","reason":"The table quote identifies srvfdw and its pg_foreign_data_wrapper.oid reference."}
+{"id":"draft-6a458ba4102e9f87","decision":"accept","reason":"The table quote explicitly supplies pg_get_expr(adbin, adrelid) as the conversion to a SQL expression."}
+{"id":"draft-bf43b898684ffb0e","decision":"accept","reason":"The table quote explicitly says adnum references pg_attribute.attnum."}
+{"id":"draft-eb3eb69b4bf26bfe","decision":"accept","reason":"The table quote explicitly describes spcoptions as text[] keyword=value strings."}
+{"id":"draft-7aba123f3dd8b9f6","decision":"accept","reason":"The table quote says defaclnamespace zero means no namespace is associated with the entry."}
+{"id":"draft-aa9ae2e46cfb6606","decision":"accept","reason":"The table quote explicitly maps defaclobjtype S to sequences."}
+{"id":"draft-e62aee50eb83cb03","decision":"accept","reason":"The table quote explicitly says true inhdetachpending means a partition is being detached."}
+{"id":"draft-c1de0e9f8abe557b","decision":"reject","reason":"The question gives the answer as one of its explicit alternatives: 'zero or one'; one is therefore leaked.","proposed_edit":"What is the starting value of the pg_inherits.inhseqno count?"}
+{"id":"draft-97bcb36324c56d2a","decision":"accept","reason":"The table quote explicitly says large-object page numbers count from zero, so the first page is 0."}
+{"id":"draft-33d8c19a2a6a932d","decision":"accept","reason":"The table quote explicitly caps one pg_largeobject.data value at LOBLKSIZE bytes."}
+{"id":"draft-d75bf9eaebefe5e4","decision":"accept","reason":"The table quote explicitly says amopsortfamily is zero for a search operator."}
+{"id":"draft-7c589a3b089506be","decision":"accept","reason":"The quote directly identifies ssl_passphrase_command as the external passphrase-command setting, and the paraphrased question omits the name."}
+{"id":"draft-f5c245b9f81a12af","decision":"accept","reason":"The quote directly identifies geqo_generations as controlling GEQO iterations, and the paraphrased question omits the name."}
+{"id":"draft-7f9ef8ca7db593fa","decision":"accept","reason":"The quote explicitly gives pg_hba.conf as the customary hba_file filename."}
+{"id":"draft-0f19208f859e894f","decision":"accept","reason":"The quote explicitly identifies pg_class.relminmxid as the field bounded by autovacuum_multixact_freeze_max_age."}
+{"id":"draft-6b632dc3c7992afc","decision":"accept","reason":"The question plausibly asks about a pg-15-unavailable catalog column; empty evidence and Not answerable match the version-unavailable type."}
+{"id":"draft-8942cc97badfb0e9","decision":"accept","reason":"Both quotes are needed: one establishes that the two-part option is accepted as a placeholder and the other identifies ALTER SYSTEM as the global-default command; the paraphrased question omits a parameter name."}
+{"id":"draft-580cf5be88985635","decision":"accept","reason":"Both quotes are needed: one defines force_generic_plan and the other states that JIT cost decisions use prepare-time settings for generic prepared plans."}
+{"id":"draft-9c2802b2b594163e","decision":"accept","reason":"Both quotes are needed: one identifies the JIT inlining threshold and the other establishes that generic-plan cost decisions occur at prepare time; the paraphrased question omits the name."}
+{"id":"draft-54999895baea7983","decision":"accept","reason":"Both quotes are needed: zero makes positive-cost queries eligible for JIT and the second explains why compilation overhead can outweigh savings for short queries."}
+{"id":"draft-4c5b47feff685169","decision":"accept","reason":"Both quotes are needed: f denotes functions and namespace zero makes the default-ACL entry global, yielding the stated scope."}
+{"id":"draft-63730cc51a247416","decision":"accept","reason":"Both quotes are needed: S denotes sequences and pg_default_acl is consulted only at object creation, supporting the answer."}
+{"id":"draft-e665d90ffc372afa","decision":"accept","reason":"Both quotes are needed: lo_open returns a transaction-scoped descriptor and lo_tell fails beyond 2GB while lo_tell64 is available."}
+{"id":"draft-b37a925d3fa6d83b","decision":"accept","reason":"Both quotes are needed: the INV_READ descriptor uses its opening snapshot and unallocated locations before the last chunk read as zeroes."}
+{"id":"draft-477c1e291a1256a8","decision":"accept","reason":"Both quotes are needed: import returns the large-object OID and lo_get reads the requested offset and length."}
+{"id":"draft-ae2c0926fb154bd9","decision":"accept","reason":"Both quotes are needed: parallel_commit concerns commit behavior while the remote transaction's isolation gives consistent snapshots across scans."}
+{"id":"draft-50fa2e2b07b4e0b4","decision":"accept","reason":"The quote explicitly says paths are separated by semicolons on Windows; alice is authorized for the restricted server-configuration section."}
+{"id":"draft-b542fbc8d5ffd75b","decision":"accept","reason":"The quote explicitly gives the GEQO default planning-effort level as five; bob is authorized by the configured SRE group."}
+{"id":"draft-5a374376eef2b4ec","decision":"accept","reason":"The quote explicitly gives the default number of simultaneous autovacuum workers other than the launcher as three; alice is authorized for the restricted section."}
+{"id":"draft-9377294f5e87a151","decision":"reject","reason":"This paraphrased question contains the parameter name ssl as 'SSL' (case-insensitively), while the quote and answer concern that exact setting.","proposed_edit":"Are secure connections enabled by default?"}
+{"id":"draft-fbf86c0d558416ce","decision":"accept","reason":"The pg-15 table quote marks array_agg Partial Mode as No, matching the version-specific answer."}
+{"id":"draft-1a061285c851d1c0","decision":"accept","reason":"The pg-16 table quote marks array_agg Partial Mode as Yes, matching the version-specific answer."}
+{"id":"draft-00d4ad3e896413a3","decision":"accept","reason":"The pg-15 table quote marks string_agg Partial Mode as No, matching the version-specific answer."}
+{"id":"draft-529a81ca28099b25","decision":"accept","reason":"The pg-16 table quote marks string_agg Partial Mode as Yes, matching the version-specific answer."}
+{"id":"draft-b0e1ed647ffc7240","decision":"accept","reason":"The quote directly identifies force_parallel_mode as the setting that forces safe queries into parallel mode for testing, and the paraphrased question omits the name."}
+{"id":"draft-4b502d51046d85a7","decision":"accept","reason":"The quote directly identifies debug_parallel_query as the pg-16 setting with the same testing behavior, and the paraphrased question omits the name."}
+{"id":"draft-a314e93971985408","decision":"reject","reason":"The question states the answer as an explicit alternative: an arbitrary non-null input is one of the choices it offers.","proposed_edit":"What kind of input value does any_value return in PostgreSQL 16?"}
+{"id":"draft-de8d404798f688a2","decision":"accept","reason":"The quote explicitly says array_sample's n may not exceed the array's first-dimension length."}
+{"id":"draft-4a08f22879a56114","decision":"accept","reason":"The quote explicitly says array_shuffle randomizes the first dimension."}
+{"id":"draft-92fcd7e6a6ca262c","decision":"accept","reason":"The quote explicitly identifies the returned fields as segment_number numeric and timeline_id bigint."}
+{"id":"draft-4b297fb47c0cc449","decision":"accept","reason":"Both quotes are needed: autovacuum_max_workers is server-start-only and the parameter-interaction quote excludes such settings from ALTER ROLE; the paraphrased question omits the name."}
+{"id":"draft-7bb846da4d2282b9","decision":"accept","reason":"The quote explicitly says a NULL expression produces an SQL NULL value."}
+{"id":"draft-12665ac82f1f9163","decision":"accept","reason":"The quote explicitly says nonnumeric, nonboolean values become JSON strings while NULL remains SQL NULL."}
+{"id":"draft-49f56f709f2dd2eb","decision":"accept","reason":"The quote explicitly gives text as the default return type when RETURNING is omitted."}
+{"id":"draft-3dbe33a74dd14d2f","decision":"accept","reason":"The quote explicitly requires the query expression supplied to json_array to return a single column."}
+{"id":"draft-d6514082714466a7","decision":"accept","reason":"The quote explicitly says NULL values are always ignored when json_array receives a query expression."}
+{"id":"draft-2f27ea088c1b07ce","decision":"accept","reason":"The quote explicitly says duplicate keys cause an error for json_object_agg_unique."}
+{"id":"draft-5ca5682d5aa33579","decision":"accept","reason":"The quote explicitly says json_object_agg_unique_strict skips entries whose values are NULL."}
+{"id":"draft-8958779a0216b9a7","decision":"accept","reason":"The quote explicitly says json_agg_strict skips NULL inputs."}
+{"id":"draft-0c023ad3c1991267","decision":"accept","reason":"The quote explicitly gives WARNING as the default icu_validation_level."}
+{"id":"draft-13673341d5b9ba12","decision":"accept","reason":"The quote explicitly says disabling presorted aggregates makes the executor sort before each ORDER BY or DISTINCT aggregate."}
+{"id":"draft-e674116ab21c3848","decision":"accept","reason":"The quote explicitly gives max_parallel_apply_workers_per_subscription a default of 2."}
+{"id":"draft-9223c48d82524fda","decision":"accept","reason":"The quote directly identifies pg_log_standby_snapshot() as writing the running-transaction snapshot without waiting for bgwriter or checkpointer, and the paraphrased question omits the name."}
+{"id":"draft-54f1be3754a7cee9","decision":"accept","reason":"The quote explicitly says date_add uses the time zone named by its third argument for daylight-saving calculations."}
+{"id":"draft-917b1268426c767d","decision":"accept","reason":"The quote explicitly says the two-argument date_subtract form is equivalent to timestamp with time zone - interval."}
+{"id":"draft-cc18625d8cacc5b7","decision":"accept","reason":"The quote explicitly says last_seq_scan is based on the most recent transaction stop time."}
+{"id":"draft-dc4d498fbf0cacc0","decision":"accept","reason":"The quote explicitly gives pg_stat_all_tables.last_idx_scan the timestamp with time zone type."}
+{"id":"draft-54a5964535a98acd","decision":"accept","reason":"The quote explicitly says rows counted in n_tup_newpage_upd are always non-HOT updates."}
+{"id":"draft-09acc103ba0088db","decision":"accept","reason":"The quote explicitly identifies the leader apply worker's PID as leader_pid for a parallel apply worker."}
+{"id":"draft-b93e7d74905321bc","decision":"accept","reason":"The quote explicitly says received_lsn is NULL for parallel apply workers."}
+{"id":"draft-5fea284725ed24a7","decision":"accept","reason":"The quote explicitly says credentials_delegated is true when GSSAPI credentials were delegated, and the paraphrased question omits the field name."}
+{"id":"draft-832a9b9cbacbceba","decision":"accept","reason":"The quote directly identifies pg_create_subscription as the predefined role, and the paraphrased question omits the role name."}
+{"id":"draft-4e8c9238b823da7d","decision":"accept","reason":"The quote directly identifies PG_ROUTINE_OID as the diagnostics item for the current function's OID, and the paraphrased question omits the item name."}
+{"id":"draft-71a2837b6d15c6e0","decision":"accept","reason":"The quote explicitly gives buffered as the default debug_logical_replication_streaming mode."}
+{"id":"draft-e1a1bb447a0d95f2","decision":"accept","reason":"The quote explicitly says SIGABRT replaces SIGKILL when send_abort_for_kill is on."}
+{"id":"draft-5e708a88af019db6","decision":"accept","reason":"The quote explicitly prohibits duplicate key expressions when WITH UNIQUE KEYS is specified."}
+{"id":"draft-80b682ce9908d95c","decision":"accept","reason":"Both version quotes show avg(smallint) returns numeric, directly supporting the unchanged-control answer."}
+{"id":"draft-24083cabffc26972","decision":"accept","reason":"Both version quotes say bit_and computes the bitwise AND of non-null inputs, directly supporting the unchanged-control answer."}
+{"id":"draft-8212c39cab5f00aa","decision":"accept","reason":"Both version quotes say bit_or computes the bitwise OR of non-null inputs, directly supporting the no answer."}
+{"id":"draft-d1b8f6b5aa7eddfa","decision":"accept","reason":"Both version quotes explicitly say bool_and returns true when all non-null inputs are true."}
+{"id":"draft-a2cf6aa49912f6e7","decision":"accept","reason":"Both version quotes explicitly say bool_or returns true when any non-null input is true."}
+{"id":"draft-dee2728be3a4e6aa","decision":"accept","reason":"Both version quotes identify count(*)'s return type as bigint."}
+{"id":"draft-3bbf02c4e418a086","decision":"accept","reason":"Both version quotes identify bit_xor as a checksum-useful bitwise aggregate for unordered values, and the paraphrased question omits the function name."}
+{"id":"draft-519d2a3d29e1d233","decision":"accept","reason":"Both version quotes say array_agg collects input values including nulls, supporting the yes answer."}
+{"id":"draft-39a8f35fc5f9cb13","decision":"accept","reason":"Both version quotes explicitly say NULL array entries are omitted when null_string is absent."}
+{"id":"draft-d6a79ce1778ec9b4","decision":"accept","reason":"Both version quotes give 4 for array_upper(ARRAY[1,8,3,7], 1)."}
+{"id":"draft-df61a1a2e6822bb7","decision":"accept","reason":"Both version quotes explicitly say cardinality returns 0 for an empty array."}
+{"id":"draft-00f9bb9ebb902fbc","decision":"accept","reason":"Both version quotes explicitly say trim_array trims only the first dimension of a multidimensional array."}
+{"id":"draft-5c27709a1f2cc6fd","decision":"accept","reason":"Both version quotes identify subconninfo as the field holding the upstream connection string, and the paraphrased question omits the field name."}
+{"id":"draft-3a1e9f007ff730d2","decision":"accept","reason":"Both version quotes explicitly say a null subslotname represents NONE."}
+{"id":"draft-337a89dacd6f79a8","decision":"accept","reason":"Both version quotes identify subsynccommit as the field controlling synchronous_commit for subscription workers, and the paraphrased question omits the name."}
+{"id":"draft-8b9a6ff9e0dc3cce","decision":"accept","reason":"Both version quotes identify pg_subscription.subpublications as text[], directly supporting the answer."}
+{"id":"draft-6ea99930a2f5381a","decision":"accept","reason":"Both version quotes explicitly say unitless work_mem values are interpreted as kilobytes."}
+{"id":"draft-8a63be41d79a5814","decision":"accept","reason":"Both version quotes say each simultaneous sort or hash operation may generally use the configured amount, so work_mem is not shared as one total."}
+{"id":"draft-201911bd3ea7cb06","decision":"accept","reason":"Both version quotes explicitly give max_stack_depth a default of 2MB."}
+{"id":"draft-98475fe20f4c59f2","decision":"accept","reason":"Both version quotes explicitly say an empty krb_server_keyfile is ignored and a system-dependent default is used."}
+{"id":"draft-f74fc35a3582f369","decision":"accept","reason":"The pg-16 quote explicitly says suborigin none requests only changes without an origin."}
+{"id":"draft-02519e960ed3a06d","decision":"accept","reason":"The pg-16 quote explicitly says subpasswordrequired true requires a password for authentication."}
+{"id":"draft-ec68b18bf68dfe08","decision":"accept","reason":"The pg-16 quote explicitly says subrunasowner true runs the subscription with the subscription owner's permissions."}
+{"id":"draft-58f9ac787d36a471","decision":"accept","reason":"The question plausibly asks about array_sample before it exists in PostgreSQL 15; empty evidence and Not answerable match the version-unavailable type."}

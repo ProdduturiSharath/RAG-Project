@@ -1,0 +1,12 @@
+{
+  "accepted": 25,
+  "accepted_by_type": {
+    "acl": 6,
+    "table": 1,
+    "unanswerable": 18
+  },
+  "batch": "batch_003.json",
+  "discarded": 0,
+  "discarded_by_type": {},
+  "reasons": []
+}

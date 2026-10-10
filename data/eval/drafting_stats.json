@@ -1,0 +1,138 @@
+{
+  "accepted": 222,
+  "acl_cases": {
+    "allowed": 4,
+    "denied": 8
+  },
+  "all_accepted_rechecked_against_full_corpus": true,
+  "approved_family_assignments_preserved": true,
+  "batches": [
+    {
+      "accepted": 25,
+      "batch": "batch_001.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_002.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_003.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_004.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_005.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 24,
+      "batch": "batch_006.json",
+      "discarded": 1
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_007.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 25,
+      "batch": "batch_008.json",
+      "discarded": 0
+    },
+    {
+      "accepted": 24,
+      "batch": "batch_009.json",
+      "discarded": 0
+    }
+  ],
+  "blind_families_preserved_since_approved_migration": true,
+  "by_type": {
+    "acl": {
+      "accepted": 12,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 8
+    },
+    "exact_identifier": {
+      "accepted": 35,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 35
+    },
+    "factoid": {
+      "accepted": 35,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 35
+    },
+    "multi_hop": {
+      "accepted": 12,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 12
+    },
+    "table": {
+      "accepted": 25,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 25
+    },
+    "unanswerable": {
+      "accepted": 18,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 18
+    },
+    "unchanged_control": {
+      "accepted": 25,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 25
+    },
+    "version_specific": {
+      "accepted": 50,
+      "discarded": 0,
+      "remaining": 0,
+      "target": 50
+    },
+    "version_unavailable": {
+      "accepted": 10,
+      "discarded": 1,
+      "remaining": 0,
+      "target": 10
+    }
+  },
+  "candidate_splits": {
+    "dev": 118,
+    "test": 104
+  },
+  "discarded": 1,
+  "family_isolation": true,
+  "gold_version_sets": {
+    "pg-15": 21,
+    "pg-15,pg-16,pg-17": 98
+  },
+  "mixed_split_families": 0,
+  "multi_hop_dependency_chains_recorded": true,
+  "paraphrased": {
+    "exact_identifier": 17,
+    "factoid": 17
+  },
+  "removed_after_import": {
+    "multi_hop": 1
+  },
+  "target_versions": {
+    "pg-15": 79,
+    "pg-16": 81,
+    "pg-17": 62
+  },
+  "version_independent_rows": 119
+}

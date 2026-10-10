@@ -1,0 +1,29 @@
+[
+  {
+    "archive": "data/raw/postgresql/postgresql-15.19.tar.gz",
+    "extracted": "data/processed/postgresql/pg-15",
+    "release": "15.19",
+    "retrieved_at_utc": "2026-10-04T07:50:20.538034+00:00",
+    "sha256": "4bf5474f0ee4afc55de5e71fb5cc8cd133ee56cd1bf16092093897b7c93328fb",
+    "source_url": "https://ftp.postgresql.org/pub/source/v15.19/postgresql-15.19.tar.gz",
+    "version": "pg-15"
+  },
+  {
+    "archive": "data/raw/postgresql/postgresql-16.15.tar.gz",
+    "extracted": "data/processed/postgresql/pg-16",
+    "release": "16.15",
+    "retrieved_at_utc": "2026-10-04T07:50:29.616302+00:00",
+    "sha256": "4f200ca23dfb120ff9838f13ce06014aad1d3c432d16ee9f93ab2000c0eeef7b",
+    "source_url": "https://ftp.postgresql.org/pub/source/v16.15/postgresql-16.15.tar.gz",
+    "version": "pg-16"
+  },
+  {
+    "archive": "data/raw/postgresql/postgresql-17.11.tar.gz",
+    "extracted": "data/processed/postgresql/pg-17",
+    "release": "17.11",
+    "retrieved_at_utc": "2026-10-04T07:50:39.449502+00:00",
+    "sha256": "5367f6fb2ec97efe1eb2e0c7926bb33438e51b0bd3a9733b88498056a7dc9a7e",
+    "source_url": "https://ftp.postgresql.org/pub/source/v17.11/postgresql-17.11.tar.gz",
+    "version": "pg-17"
+  }
+]

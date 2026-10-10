@@ -1,0 +1,26 @@
+# Simulated ACL policy for restricted-source benchmark questions.
+principals:
+  - id: alice
+    groups: [docs-admins, sre]
+  - id: bob
+    groups: [sre]
+  - id: guest
+    groups: []
+groups:
+  docs-admins:
+    description: "Documentation administrators may read restricted operations material."
+  sre:
+    description: "Site reliability engineers may read operational material."
+restricted_section_titles:
+  - authentication
+  - authorization
+  - roles
+  - server configuration
+  - monitoring
+  - security
+restricted_requesters:
+  - guest
+  - external-contractor
+restricted_allowed_groups:
+  - docs-admins
+  - sre

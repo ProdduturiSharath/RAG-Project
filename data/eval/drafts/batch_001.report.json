@@ -1,0 +1,12 @@
+{
+  "accepted": 25,
+  "accepted_by_type": {
+    "unchanged_control": 5,
+    "version_specific": 12,
+    "version_unavailable": 8
+  },
+  "batch": "batch_001.json",
+  "discarded": 0,
+  "discarded_by_type": {},
+  "reasons": []
+}

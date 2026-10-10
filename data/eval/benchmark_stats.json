@@ -1,0 +1,77 @@
+{
+  "assignment_changes_in_approved_migration": 4709,
+  "blind_families": 1071,
+  "blind_families_preserved_since_approved_migration": true,
+  "blind_pool_unchanged": false,
+  "candidate_counts_dev_test": {
+    "acl": 12,
+    "exact_identifier": 35,
+    "factoid": 35,
+    "multi_hop": 12,
+    "table": 25,
+    "unanswerable": 18,
+    "unchanged_control": 25,
+    "version_specific": 50,
+    "version_unavailable": 10
+  },
+  "candidate_splits": {
+    "dev": 118,
+    "test": 104
+  },
+  "candidate_total": 222,
+  "diffs": {
+    "change_kinds": {
+      "changed_default": 3,
+      "parameter_added": 192,
+      "parameter_removed": 96,
+      "parameter_renamed": 9,
+      "table_row_added": 274,
+      "table_row_removed": 198,
+      "text_changed": 552
+    },
+    "diff_records": 745,
+    "lineages_changed": 745,
+    "lineages_matched": 11365,
+    "lineages_total": 12581
+  },
+  "mixed_split_families": 0,
+  "new_lineages": 1334,
+  "parser_repair": "parser-repair-impact.json",
+  "parser_repair_changed_quote_ids": [
+    "draft-257b83c46f868ef6",
+    "draft-2698580abdaeb4fb",
+    "draft-05e120c03871ce0e",
+    "draft-59e8d98dc1e8267d",
+    "draft-9087662e522341da",
+    "draft-aa8fc2079022d8f2",
+    "draft-14d3ffdd0bfc1fc6",
+    "draft-29bf0d3d09985e6f",
+    "draft-434bc40422c18e75",
+    "draft-6a52c545b09efc02",
+    "draft-c606806c6ba4b0ef",
+    "draft-580cf5be88985635",
+    "draft-9c2802b2b594163e",
+    "draft-54999895baea7983",
+    "draft-54f1be3754a7cee9",
+    "draft-917b1268426c767d"
+  ],
+  "parser_repair_excluded_new_records": 607,
+  "parser_repair_ingestion": "parser_repair_ingestion_metrics.json",
+  "preserved_surviving_assignments": 11247,
+  "retained_retired_blind": 62,
+  "retired_lineages": 662,
+  "section_families": 6653,
+  "source_records_per_version": {
+    "pg-15": 7893,
+    "pg-16": 7984,
+    "pg-17": 8069
+  },
+  "split_counts": {
+    "blind": 3497,
+    "dev": 4985,
+    "test": 2265,
+    "train": 1896
+  },
+  "split_migration": "split-migration.json",
+  "validation_source_records": 3618
+}

@@ -1,0 +1,11 @@
+{
+  "accepted": 25,
+  "accepted_by_type": {
+    "exact_identifier": 12,
+    "factoid": 13
+  },
+  "batch": "batch_004.json",
+  "discarded": 0,
+  "discarded_by_type": {},
+  "reasons": []
+}

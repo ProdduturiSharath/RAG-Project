@@ -1,0 +1,31 @@
+{
+  "chunker": {
+    "max_tokens": 220,
+    "overlap_tokens": 35
+  },
+  "embedder": "bge-small-en-v1.5 (database ingestion script)",
+  "embedding_seconds": 591.178,
+  "embedding_status": "completed parser-repair eval ingestion",
+  "ingestion_metrics": "data/eval/parser_repair_ingestion_metrics.json",
+  "pg-15": {
+    "chunks": 10777,
+    "code_chunks": 3822,
+    "documents": 1,
+    "sections": 7893,
+    "table_chunks": 459
+  },
+  "pg-16": {
+    "chunks": 10912,
+    "code_chunks": 3873,
+    "documents": 1,
+    "sections": 7984,
+    "table_chunks": 467
+  },
+  "pg-17": {
+    "chunks": 11030,
+    "code_chunks": 3939,
+    "documents": 1,
+    "sections": 8069,
+    "table_chunks": 463
+  }
+}
