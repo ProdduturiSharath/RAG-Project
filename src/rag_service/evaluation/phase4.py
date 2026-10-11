@@ -7,6 +7,7 @@ import json
 import os
 import random
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -136,7 +137,7 @@ def experiment(suite: ExperimentConfig, name: str, system: SystemConfig,
                data: dict[str, Any]) -> ExperimentConfig:
     pipeline = system.model_dump()
     if system.search_mode != "dense" and system.sparse_method == "postgres":
-        pipeline["retrieval_revision"] = "postgres-sparse-or-v2"
+        pipeline["retrieval_revision"] = "postgres-sparse-filter-v3"
     if system.version_mode == "auto":
         pipeline["scope_revision"] = "auto-fallback-v2"
     stable_keys = ("corpus_sha256", "embeddings_fingerprint", "gold_sha256",
@@ -161,23 +162,123 @@ def _compatible_cached_config(candidate: dict[str, Any], expected: ExperimentCon
         return False
     expected_parameters = expected.model_dump()["parameters"]
     actual_parameters = candidate.get("parameters", {})
+    if not isinstance(actual_parameters, Mapping):
+        return False
     if actual_parameters.get("pipeline") != expected_parameters["pipeline"]:
         return False
     if actual_parameters.get("embedder_id") != expected_parameters["embedder_id"]:
         return False
-    return all(actual_parameters.get("inputs", {}).get(key) == value
+    actual_inputs = actual_parameters.get("inputs", {})
+    if not isinstance(actual_inputs, Mapping):
+        return False
+    return all(actual_inputs.get(key) == value
                for key, value in expected_parameters["inputs"].items())
 
 
-def _find_cached_artifact(results: Path, expected: ExperimentConfig) -> dict[str, Any] | None:
-    for path in sorted(results.glob("*.json")):
-        try:
-            artifact = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        if _compatible_cached_config(artifact.get("config", {}), expected):
-            return artifact
+def _read_cached_artifact(path: Path, warned: set[Path]) -> dict[str, Any] | None:
+    try:
+        artifact = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(artifact, dict):
+        if path not in warned:
+            print(f"Warning: ignoring incompatible cache {path} (expected a result object); "
+                  "rebuilding", flush=True)
+            warned.add(path)
+        return None
+    if "config" not in artifact:
+        return None
+    if (
+        not isinstance(artifact["config"], dict)
+        or not isinstance(artifact.get("rows"), list)
+        or not isinstance(artifact.get("completed_splits"), list)
+        or not isinstance(artifact.get("metrics"), dict)
+    ):
+        if path not in warned:
+            print(f"Warning: ignoring incompatible cache {path} (invalid result structure); "
+                  "rebuilding", flush=True)
+            warned.add(path)
+        return None
+    return artifact
+
+
+def _find_cached_artifact(results: Path, expected: ExperimentConfig,
+                          warned: set[Path] | None = None) -> dict[str, Any] | None:
+    warned = warned if warned is not None else set()
+    cache_dirs = [results]
+    backup = results.parent / "results_run1_backup"
+    if backup.is_dir() and backup != results:
+        cache_dirs.append(backup)
+    for cache_dir in cache_dirs:
+        for path in sorted(cache_dir.glob("*.json")):
+            artifact = _read_cached_artifact(path, warned)
+            if artifact is not None and _compatible_cached_config(artifact["config"], expected):
+                return artifact
     return None
+
+
+def _smoke_rows(gold: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    selected: list[dict[str, Any]] = []
+    for predicate in (
+        lambda row: row["type"] == "exact_identifier",
+        lambda row: row["type"] == "version_specific",
+        lambda row: row["type"] == "acl" and row["acl_allowance"],
+    ):
+        row = next((candidate for candidate in gold if predicate(candidate)), None)
+        if row is not None and row not in selected:
+            selected.append(row)
+    for row in gold:
+        if len(selected) == 3:
+            break
+        if row not in selected:
+            selected.append(row)
+    return tuple(selected[:3])
+
+
+async def smoke_suite(configs: Mapping[str, SystemConfig], resources: Resources,
+                      rows: Sequence[dict[str, Any]]) -> None:
+    """Exercise every selected arm without reading or writing result artifacts."""
+
+    print(f"Phase 4 smoke: {len(configs)} arms × {len(rows)} gold questions", flush=True)
+    failures: list[str] = []
+    for name, system in configs.items():
+        try:
+            retrievers = {acl: resources.retriever(system, acl=acl) for acl in (False, True)}
+            for row in rows:
+                is_acl = row["type"] == "acl"
+                filters = RetrievalFilters(
+                    principal=row["requester"],
+                    groups=policy_groups(resources.data["policy"], row["requester"]),
+                    version_mode=system.version_mode,
+                    product_version=row["target_version"]
+                    if system.version_mode == "explicit" else None,
+                )
+                result = await retrievers[is_acl].retrieve_detailed(
+                    row["question"],
+                    top_k=min(3, system.candidate_k),
+                    candidate_k=system.candidate_k,
+                    alpha=system.alpha,
+                    filters=filters,
+                )
+                exposed = {
+                    candidate["chunk_id"]
+                    for stage in result.stages
+                    for candidate in stage.candidates
+                }
+                exposed.update(match.chunk.chunk_id for match in result.matches)
+                if is_acl and any(
+                    not allowed(resources.chunk_maps[system.chunk_tokens][chunk_id],
+                                resources.data["policy"], row["requester"])
+                    for chunk_id in exposed
+                ):
+                    raise RuntimeError(f"ACL leakage on {row['id']}")
+            print(f"SMOKE PASS {name}", flush=True)
+        except Exception as exc:
+            message = f"{type(exc).__name__}: {exc}"
+            failures.append(f"{name} ({message})")
+            print(f"SMOKE FAIL {name}: {message}", flush=True)
+    if failures:
+        raise RuntimeError("smoke failed: " + "; ".join(failures))
 
 
 async def run_split(config: ExperimentConfig, system: SystemConfig, split: str,
@@ -270,7 +371,8 @@ def dev_score(artifact: dict[str, Any]) -> float:
 
 async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
                     refresh: bool = False,
-                    preflight_only: bool = False) -> Path:
+                    preflight_only: bool = False,
+                    smoke_only: bool = False) -> Path:
     data = preflight(suite, os.environ.get("RAG_EVAL_DATABASE_URL", DATABASE_DEFAULT), results)
     if preflight_only:
         return results / "phase4_preflight.json"
@@ -283,9 +385,14 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
     torch.set_num_threads(int(os.environ.get("RAG_EVAL_THREADS", "4")))
     configs = systems(suite, flags)
     resources = Resources(data)
+    await smoke_suite(configs, resources, _smoke_rows(data["gold"]))
+    if smoke_only:
+        print("Phase 4 smoke passed; long evaluation was not started", flush=True)
+        return results / "phase4_preflight.json"
     artifacts: dict[str, dict[str, Any]] = {}
     experiments = {name: experiment(suite, name, config, data) for name, config in configs.items()}
     parents = {arm["name"]: arm["parent"] for arm in suite.parameters["arms"]}
+    warned_cache_paths: set[Path] = set()
     for name, exp in experiments.items():
         path = results / f"{exp.config_hash}.json"
         artifact: dict[str, Any] = {
@@ -294,18 +401,20 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
             "rows": [], "metrics": {}, "completed_splits": [],
         }
         if path.exists() and not refresh:
-            artifact = json.loads(path.read_text())
-            if artifact["config"] != exp.model_dump():
-                raise ValueError(f"cached config mismatch: {path}")
-            expected_ids = {row["id"] for row in data["gold"]}
-            cached_ids = [row["id"] for row in artifact["rows"]]
-            if len(set(cached_ids)) != len(cached_ids) or not set(cached_ids) <= expected_ids:
-                raise ValueError(f"cached question IDs are invalid: {path}")
-            if any(row["leakage_count"] for row in artifact["rows"]):
-                raise RuntimeError(f"cached result contains ACL leakage: {path}; "
-                                   "fix then --refresh")
+            cached = _read_cached_artifact(path, warned_cache_paths)
+            if cached is not None:
+                artifact = cached
+                if artifact["config"] != exp.model_dump():
+                    raise ValueError(f"cached config mismatch: {path}")
+                expected_ids = {row["id"] for row in data["gold"]}
+                cached_ids = [row["id"] for row in artifact["rows"]]
+                if len(set(cached_ids)) != len(cached_ids) or not set(cached_ids) <= expected_ids:
+                    raise ValueError(f"cached question IDs are invalid: {path}")
+                if any(row["leakage_count"] for row in artifact["rows"]):
+                    raise RuntimeError(f"cached result contains ACL leakage: {path}; "
+                                       "fix then --refresh")
         elif not refresh:
-            cached = _find_cached_artifact(results, exp)
+            cached = _find_cached_artifact(results, exp, warned_cache_paths)
             if cached is not None:
                 artifact = cached
                 artifact["config"] = exp.model_dump()

@@ -24,8 +24,69 @@ _TSQUERY_TERM_RE = re.compile(r"[a-z0-9]+(?:[_./-][a-z0-9]+)*", re.IGNORECASE)
 _QUESTION_STOPWORDS = frozenset(
     "a an the is are was were be been being do does did what which who whose when where "
     "why how in on at to of for from by with without and or as it its this that these "
-    "those can could would should may might must will shall".split()
+    "those can could would should may might must will shall version".split()
 )
+_SPARSE_IGNORED_TERMS = frozenset(("postgresql", "version"))
+_SPARSE_MAX_DOCUMENT_SHARE = 0.05
+_SPARSE_STATS_CACHE: dict[str, tuple[int, dict[str, int]]] = {}
+
+
+def _query_terms(value: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_TSQUERY_TERM_RE.findall(value.casefold())))
+
+
+def _ignored_sparse_term(term: str) -> bool:
+    return bool(
+        term in _SPARSE_IGNORED_TERMS or term in _QUESTION_STOPWORDS
+        or term.isdigit()
+        or re.fullmatch(r"(?:pg|postgresql|v)[-_.]?\d+(?:[-_.]\d+)*", term)
+    )
+
+
+def _keep_sparse_term(term: str, document_frequencies: Mapping[str, int],
+                      document_count: int, max_document_share: float) -> bool:
+    if _ignored_sparse_term(term):
+        return False
+    # Compound spellings are identifier evidence even when a component such as
+    # "limit" is common in prose.
+    if any(separator in term for separator in "_./-"):
+        return True
+    if not document_count:
+        return True
+    return document_frequencies.get(term, 0) / document_count <= max_document_share
+
+
+def _filtered_sparse_query_texts(
+    query_text: str,
+    document_frequencies: Mapping[str, int],
+    document_count: int,
+    max_document_share: float = _SPARSE_MAX_DOCUMENT_SHARE,
+) -> tuple[str, str, tuple[str, ...]]:
+    normalized = re.sub(r"[_./-]", " ", query_text)
+    plain_terms = _query_terms(query_text)
+    identifier_terms = _query_terms(normalized)
+    dropped: list[str] = []
+
+    def kept(terms: Sequence[str]) -> list[str]:
+        output: list[str] = []
+        for term in terms:
+            if _keep_sparse_term(term, document_frequencies, document_count,
+                                 max_document_share):
+                output.append(term)
+            else:
+                dropped.append(term)
+        return output
+
+    plain = kept(plain_terms)
+    identifiers = kept(identifier_terms)
+    for term in plain_terms:
+        if any(separator in term for separator in "_./-") and term not in identifiers:
+            identifiers.append(term)
+    return (
+        " | ".join(f"'{term}'" for term in plain),
+        " | ".join(f"'{term}'" for term in dict.fromkeys(identifiers)),
+        tuple(dict.fromkeys(dropped)),
+    )
 
 
 def sparse_query_texts(query_text: str) -> tuple[str, str]:
@@ -44,10 +105,24 @@ def sparse_query_texts(query_text: str) -> tuple[str, str]:
     normalized = re.sub(r"[_./-]", " ", query_text)
 
     def build(value: str) -> str:
-        terms = dict.fromkeys(_TSQUERY_TERM_RE.findall(value.casefold()))
+        terms = _query_terms(value)
         return " | ".join(f"'{term}'" for term in terms if term not in _QUESTION_STOPWORDS)
 
     return build(query_text), build(normalized)
+
+
+def filter_sparse_terms(
+    query_text: str,
+    document_frequencies: Mapping[str, int],
+    document_count: int,
+    max_document_share: float = _SPARSE_MAX_DOCUMENT_SHARE,
+) -> tuple[str, str]:
+    """Return filtered prose and identifier OR queries for the Postgres path."""
+
+    plain, identifiers, _ = _filtered_sparse_query_texts(
+        query_text, document_frequencies, document_count, max_document_share
+    )
+    return plain, identifiers
 
 
 class PostgresHybridIndex:
@@ -140,14 +215,17 @@ class PostgresHybridIndex:
 
     def sparse_search(self, query_text: str, *, top_k: int,
                       filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
-        terms, source, params = self._sparse_sql(query_text, filters)
-        query = f"""{terms} SELECT c.payload,
+        with self.database.connect() as conn:
+            document_stats = self._document_frequencies(conn)
+            terms, source, params = self._sparse_sql(
+                query_text, filters, document_stats=document_stats
+            )
+            query = f"""{terms} SELECT c.payload,
                    greatest(ts_rank_cd(c.search_vector, terms.plain),
                              ts_rank_cd(c.identifier_vector, terms.identifiers)) AS score
             {source}
             ORDER BY score DESC, c.id
             LIMIT %s"""
-        with self.database.connect() as conn:
             rows = conn.execute(query, (*params, top_k)).fetchall()
         return tuple(
             ScoredChunk(
@@ -158,9 +236,16 @@ class PostgresHybridIndex:
             for rank, row in enumerate(rows, 1)
         )
 
-    def _sparse_sql(self, query_text: str, filters: RetrievalFilters
+    def _sparse_sql(self, query_text: str, filters: RetrievalFilters, *,
+                    document_stats: tuple[int, Mapping[str, int]] | None = None
                     ) -> tuple[str, str, tuple[Any, ...]]:
-        plain_query, identifier_query = sparse_query_texts(query_text)
+        if document_stats is None:
+            plain_query, identifier_query = sparse_query_texts(query_text)
+        else:
+            document_count, document_frequencies = document_stats
+            plain_query, identifier_query, _ = _filtered_sparse_query_texts(
+                query_text, document_frequencies, document_count
+            )
         where, params = self._scope_where(filters)
         terms = """WITH terms AS (
             SELECT to_tsquery('simple', %s) AS plain,
@@ -174,21 +259,98 @@ class PostgresHybridIndex:
                    OR c.identifier_vector @@ terms.identifiers)"""
         return terms, common, (plain_query, identifier_query, *params)
 
+    def _document_frequencies(self, conn: Any) -> tuple[int, dict[str, int]]:
+        cache_key = self.database.database_url
+        cached = _SPARSE_STATS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        count_row = conn.execute("""
+            SELECT count(*) AS count
+            FROM chunks c JOIN document_versions v ON v.id=c.document_version_id
+            WHERE v.status='active'
+        """).fetchone()
+        rows = conn.execute("""
+            SELECT term, count(*) AS df
+            FROM (
+                SELECT c.id, token.lexeme AS term
+                FROM chunks c
+                JOIN document_versions v ON v.id=c.document_version_id
+                CROSS JOIN LATERAL unnest(tsvector_to_array(c.search_vector)) AS token(lexeme)
+                WHERE v.status='active'
+                UNION
+                SELECT c.id, token.lexeme AS term
+                FROM chunks c
+                JOIN document_versions v ON v.id=c.document_version_id
+                CROSS JOIN LATERAL unnest(tsvector_to_array(c.identifier_vector)) AS token(lexeme)
+                WHERE v.status='active'
+            ) AS terms
+            GROUP BY term
+        """).fetchall()
+        stats = (
+            int(count_row["count"]) if count_row else 0,
+            {str(row["term"]): int(row["df"]) for row in rows},
+        )
+        _SPARSE_STATS_CACHE[cache_key] = stats
+        return stats
+
     def sparse_diagnostic(self, query_text: str, *, top_k: int = 3,
-                          filters: RetrievalFilters | None = None) -> dict[str, Any]:
+                          filters: RetrievalFilters | None = None,
+                          gold_chunk_ids: Sequence[str] = ()) -> dict[str, Any]:
         """Use the search path's query/predicate and return its actual parsed tsqueries."""
         filters = filters or RetrievalFilters()
-        terms, source, params = self._sparse_sql(query_text, filters)
-        query = f"""{terms} SELECT (SELECT count(*) {source}) AS count,
-            plain::text AS plain, identifiers::text AS identifiers FROM terms"""
         with self.database.connect() as conn:
+            document_stats = self._document_frequencies(conn)
+            document_count, document_frequencies = document_stats
+            _, _, dropped_terms = _filtered_sparse_query_texts(
+                query_text, document_frequencies, document_count
+            )
+            terms, source, params = self._sparse_sql(
+                query_text, filters, document_stats=document_stats
+            )
+            query = f"""{terms} SELECT (SELECT count(*) {source}) AS count,
+                plain::text AS plain, identifiers::text AS identifiers FROM terms"""
             row = conn.execute(query, params).fetchone()
-        matches = self.sparse_search(query_text, top_k=top_k, filters=filters)
+            top_query = f"""{terms} SELECT c.payload,
+                       greatest(ts_rank_cd(c.search_vector, terms.plain),
+                                ts_rank_cd(c.identifier_vector, terms.identifiers)) AS score
+                {source}
+                ORDER BY score DESC, c.id
+                LIMIT %s"""
+            top_rows = conn.execute(top_query, (*params, top_k)).fetchall()
+            rank_rows: list[Any] = []
+            if gold_chunk_ids:
+                rank_query = f"""{terms}, ranked AS (
+                    SELECT c.chunk_key, c.id,
+                           greatest(ts_rank_cd(c.search_vector, terms.plain),
+                                    ts_rank_cd(c.identifier_vector, terms.identifiers)) AS score
+                    {source}
+                )
+                SELECT chunk_key, score,
+                       row_number() OVER (ORDER BY score DESC, id) AS rank
+                FROM ranked
+                WHERE chunk_key=ANY(%s)"""
+                rank_rows = conn.execute(rank_query, (*params, list(gold_chunk_ids))).fetchall()
+        matches = tuple(
+            ScoredChunk(
+                chunk=replace(chunk_from_payload(row["payload"]), access_policy=None),
+                sparse_score=float(row["score"]),
+                rank=rank,
+            )
+            for rank, row in enumerate(top_rows, 1)
+        )
+        ranked_gold = {str(item["chunk_key"]): int(item["rank"]) for item in rank_rows}
         return {
             "plain_tsquery": row["plain"] if row else "",
             "identifier_tsquery": row["identifiers"] if row else "",
             "matching_chunk_count": int(row["count"]) if row else 0,
+            "document_count": document_count,
+            "dropped_terms": list(dropped_terms),
             "top_chunk_ids": [match.chunk.chunk_id for match in matches],
+            "top_matches": [{"chunk_id": match.chunk.chunk_id,
+                             "score": match.sparse_score, "rank": match.rank}
+                            for match in matches],
+            "gold_chunk_ranks": {chunk_id: ranked_gold.get(chunk_id)
+                                 for chunk_id in gold_chunk_ids},
         }
 
     def expand_parents(self, matches: Sequence[ScoredChunk], *,

@@ -17,6 +17,8 @@ def main() -> None:
     parser.add_argument("--chunk-size", action="store_true")
     parser.add_argument("--scifact", action="store_true")
     parser.add_argument("--refresh", action="store_true")
+    parser.add_argument("--smoke", action="store_true",
+                        help="run every selected arm on three gold questions only")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--check-cache", type=Path)
     args = parser.parse_args()
@@ -35,7 +37,7 @@ def main() -> None:
                  if getattr(args, flag.replace("-", "_"))}
         try:
             result_path = execute(config, args.results_dir, flags, refresh=args.refresh,
-                                  preflight_only=args.preflight_only)
+                                  preflight_only=args.preflight_only, smoke_only=args.smoke)
         except Exception as exc:
             raise SystemExit(f"Phase 4 stopped: {type(exc).__name__}: {exc}") from exc
         print(result_path.resolve())

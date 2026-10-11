@@ -628,6 +628,6 @@ evaluation is pending.
 
 ## Phase 4 implementation — 2026-10-10
 - `phase-4-evaluation` is based on merged `main`; both human-review inputs are committed and all 212 gold rows rebuild byte-for-byte.
-- Harness fixes cover OR sparse FTS, auto-scope fallback, deduplicated evidence metrics, cached-ranking reuse (including compatible prior snapshot adoption), zero-score guards, and BM25 hybrids; protocol: [phase4_evaluation.md](phase4_evaluation.md).
-- Host command remains `bash scripts/run_phase4.sh --metadata-prefix --scifact`; preflight now prints five sparse diagnostics and parsed-version count. Phase 5 has not started.
-- Sandbox: 16 focused tests, Ruff, mypy, config-arm validation and final-gold validation pass; full unit run is 55 passed/9 blocked by absent sentence-transformers, and host SQL/model rerun remains pending.
+- Harness fixes cover OR sparse FTS, auto-scope fallback, deduplicated evidence metrics, compatible cache reuse, zero-score guards, BM25 hybrids, and a real-path smoke gate; protocol: [phase4_evaluation.md](phase4_evaluation.md).
+- Host command remains `bash scripts/run_phase4.sh --metadata-prefix --scifact`; normal runs smoke-test every selected arm and preflight prints filtered sparse diagnostics with scores/ranks. Phase 5 has not started.
+- Sandbox: 18 focused tests, Ruff, mypy, config-arm validation and final-gold validation pass; full unit run is 57 passed/9 blocked by absent sentence-transformers, and host SQL/model rerun remains pending.

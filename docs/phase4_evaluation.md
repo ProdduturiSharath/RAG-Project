@@ -86,13 +86,19 @@ Optional flags, all off by default:
   and compatible prior code-hash snapshots are adopted by exact chunk/version/
   restriction identity, so a harness-only fix does not re-embed metadata-prefixed
   or optional arms.
+- Every normal run first smoke-tests each selected configured arm on three gold
+  questions through the real Postgres/model path. `--smoke` runs only that gate;
+  it never reads result artifacts for the arms and prints PASS/FAIL per arm.
 
 The sparse PostgreSQL path uses separate sanitized OR queries for prose and
-punctuation-normalized identifiers. The old `plainto_tsquery` AND behavior
-required every question word to occur in one chunk and could silently return no
-rows. Preflight prints the generated queries, match count, and top three IDs for
-five gold questions. The run aborts if an arm has zero recall on every scored
-question. In-process BM25 is available both as its original sparse-only arm and
+punctuation-normalized identifiers. Query-only filters drop `postgresql`, version
+numbers, and terms appearing in more than 5% of active chunks; identifier terms
+remain eligible, and document frequencies are cached per snapshot. The old
+`plainto_tsquery` AND behavior required every question word to occur in one chunk
+and could silently return no rows. Preflight prints filtered queries, match count,
+top-three IDs with scores, and gold-evidence ranks for five gold questions. The
+run aborts if an arm has zero recall on every scored question. In-process BM25 is
+available both as its original sparse-only arm and
 as `hybrid-bm25-rrf`/`hybrid-bm25-weighted`; the weighted BM25 alpha is selected
 on DEV only. `hybrid-postgres-rrf` makes the fixed PostgreSQL sparse path an
 explicit hybrid comparison.

@@ -28,7 +28,7 @@ from rag_service.retrieval.scope import parsed_version_mentions
 from rag_service.storage.serialization import chunk_from_payload, chunk_to_payload
 
 from .experiments import ExperimentConfig
-from .metrics import normalize
+from .metrics import covers, normalize
 from .phase4_config import SystemConfig
 
 BASE_EMBEDDER = "bge-small-en-v1.5"
@@ -143,12 +143,18 @@ def preflight(config: ExperimentConfig, database_url: str, results: Path) -> dic
     sparse_index = PostgresHybridIndex(dsn, embedder_id=BASE_EMBEDDER)
     sparse_diagnostics: list[dict[str, Any]] = []
     for row in gold[:5]:
+        gold_chunk_ids = tuple(
+            chunk.chunk_id for chunk in chunks
+            if covers(row, chunk_record(chunk))
+            and (row["type"] != "acl" or allowed(chunk, policy, row["requester"]))
+        )
         diagnostic = sparse_index.sparse_diagnostic(
             row["question"],
             filters=RetrievalFilters(
                 principal=row["requester"],
                 groups=policy_groups(policy, row["requester"]),
             ),
+            gold_chunk_ids=gold_chunk_ids,
         )
         item = {"id": row["id"], "question": row["question"], **diagnostic}
         sparse_diagnostics.append(item)
@@ -156,7 +162,10 @@ def preflight(config: ExperimentConfig, database_url: str, results: Path) -> dic
             f"Sparse diagnostic {row['id']}: plain={diagnostic['plain_tsquery']!r}; "
             f"identifier={diagnostic['identifier_tsquery']!r}; "
             f"matches={diagnostic['matching_chunk_count']}; "
-            f"top3={diagnostic['top_chunk_ids']}",
+            f"dropped={diagnostic['dropped_terms']}; "
+            f"top3={[(item['chunk_id'], round(item['score'], 6))
+                     for item in diagnostic['top_matches']]}; "
+            f"gold_ranks={diagnostic['gold_chunk_ranks']}",
             flush=True,
         )
     for row in gold:

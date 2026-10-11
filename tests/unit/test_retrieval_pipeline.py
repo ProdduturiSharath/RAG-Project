@@ -14,7 +14,7 @@ from rag_service.retrieval import (
     resolve_scope,
 )
 from rag_service.retrieval.encoders import tokenize
-from rag_service.retrieval.postgres import sparse_query_texts
+from rag_service.retrieval.postgres import filter_sparse_terms, sparse_query_texts
 from rag_service.retrieval.service import HybridRetriever
 
 
@@ -150,6 +150,21 @@ class RetrievalPrimitiveTests(unittest.TestCase):
 
         self.assertEqual(plain, "'max_wal-senders'")
         self.assertEqual(identifiers, "'max' | 'wal' | 'senders'")
+
+    def test_postgres_sparse_term_filter_drops_common_and_version_terms(self) -> None:
+        plain, identifiers = filter_sparse_terms(
+            "What is PostgreSQL 17 default value for vacuum_buffer_usage_limit?",
+            {"default": 8, "value": 7, "vacuum": 1, "buffer": 2, "usage": 1,
+             "limit": 2, "pg": 40, "subscription": 20, "vacuum_buffer_usage_limit": 1},
+            document_count=100,
+        )
+
+        self.assertNotIn("default", plain)
+        self.assertNotIn("postgresql", plain)
+        self.assertNotIn("17", plain)
+        self.assertIn("'vacuum_buffer_usage_limit'", plain)
+        self.assertIn("'vacuum'", identifiers)
+        self.assertNotIn("'pg'", identifiers)
 
     def test_auto_scope_selects_one_explicit_version_mention(self) -> None:
         result = resolve_scope(
