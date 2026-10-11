@@ -226,7 +226,7 @@ class Snapshot:
         self.acl_dsn = make_conninfo(dsn, options=f"-c search_path={self.schema}_acl,public")
         self.chunks = chunks
         self.policy = policy
-        self._memory: dict[tuple[str, bool, str], InMemoryHybridIndex] = {}
+        self._memory: dict[tuple[str, bool, str, bool], InMemoryHybridIndex] = {}
         self._prepare()
 
     def _prepare(self) -> None:
@@ -346,7 +346,8 @@ class Snapshot:
         if config.sparse_method != "bm25":
             return PostgresHybridIndex(self.acl_dsn if acl else self.dsn,
                                        embedder_id=config.embedder_id)
-        key = (config.sparse_method, acl, config.embedder_id)
+        key = (config.sparse_method, acl, config.embedder_id,
+               config.search_mode != "sparse")
         if key not in self._memory:
             index = InMemoryHybridIndex()
             chunks = [replace(c, access_policy=AccessPolicy(
