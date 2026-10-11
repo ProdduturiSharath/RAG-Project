@@ -444,6 +444,7 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
         "criterion": "dev ndcg@10 descending, name ascending for ties", "alpha_arm": alpha,
         "tuned_arms": selected_tunes,
         "best_two": best, "dev_scores": {name: dev_score(artifacts[name]) for name in configs},
+        "artifact_hashes": {name: exp.config_hash for name, exp in experiments.items()},
         "input_fingerprints": data["provenance"],
     })
     print(f"Dev selection frozen: alpha={alpha}, best two={', '.join(best)}", flush=True)
@@ -451,7 +452,10 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
         exp = experiments[name]
         artifacts[name] = await run_split(exp, configs[name], "test", resources, artifacts[name],
                                           results / f"{exp.config_hash}.json")
-    for name in best:
+    failure_systems = dict.fromkeys([*best, "recommended", "recommended-cross-encoder"])
+    for name in failure_systems:
+        if name not in artifacts:
+            continue
         write_failures(name, artifacts[name]["rows"], results)
     differences = comparisons(artifacts, parents, best, suite.seed,
                               suite.parameters["bootstrap_samples"])

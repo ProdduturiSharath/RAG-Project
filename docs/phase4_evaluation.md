@@ -103,6 +103,12 @@ as `hybrid-bm25-rrf`/`hybrid-bm25-weighted`; the weighted BM25 alpha is selected
 on DEV only. `hybrid-postgres-rrf` makes the fixed PostgreSQL sparse path an
 explicit hybrid comparison.
 
+The closeout arms stack the frozen DEV-selected `hybrid-bm25-weighted-025`
+settings with automatic parsed-version scope, parent expansion off, and no
+reranker (`recommended`); `recommended-cross-encoder` changes only the
+reranker. Both run on DEV and TEST. A completed run generates
+`docs/phase4_findings.md` from its JSON artifacts.
+
 All model inference is local on the host. The host may download missing model
 weights; there are no model API calls. Existing ingestion and public tables are
 preserved; content-addressed `phase4_*` schemas hold evaluation snapshots/caches.

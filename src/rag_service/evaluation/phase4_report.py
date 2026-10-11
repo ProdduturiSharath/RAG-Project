@@ -97,6 +97,8 @@ def comparisons(artifacts: dict[str, dict[str, Any]], parents: dict[str, str], b
                 seed: int, samples: int) -> list[dict[str, Any]]:
     pairs = {(name, "default") for name in artifacts if name != "default"}
     pairs |= {(name, parent) for name, parent in parents.items() if name in artifacts}
+    pairs |= {(name, "bm25") for name in ("recommended", "recommended-cross-encoder")
+              if name in artifacts and "bm25" in artifacts}
     if len(best) == 2:
         pairs.add((best[0], best[1]))
     output = []
@@ -133,7 +135,8 @@ def write_failures(name: str, rows: list[dict[str, Any]], results: Path) -> None
     failures.sort(key=lambda row: (row["metrics"]["all_quotes@10"], row["metrics"]["recall@10"],
                                   row["metrics"]["ndcg@10"], row["metrics"]["mrr"], row["id"]))
     lines = [f"# Worst test failures: {name}", "",
-             f"System selected on dev. Showing {min(30, len(failures))} "
+             f"DEV-selected system or fixed DEV-derived combined arm. "
+             f"Showing {min(30, len(failures))} "
              f"of {len(failures)} failures.",
              "Ranking: all-quotes@10, Recall@10, nDCG@10, MRR ascending; then ID.", ""]
     for row in failures[:30]:

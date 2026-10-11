@@ -27,3 +27,8 @@ if ! "$PYTHON" -c 'import numpy, jsonschema' 2>/dev/null; then
     "$PYTHON" -m pip install 'numpy>=1.26,<3' 'jsonschema>=4.23,<5'
 fi
 "$PYTHON" -m rag_service.evaluation.run --config configs/phase-4-evaluation.yaml "$@"
+case " $* " in
+    *" --smoke "*|*" --preflight-only "*) ;;
+    *) "$PYTHON" scripts/make_findings.py --results-dir results
+       ;;
+esac
