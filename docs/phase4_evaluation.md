@@ -29,16 +29,20 @@ default **on**, with both hybrid and pure-dense on/off comparisons.
   the existing final-gold validator's explicitly accepted `model_audit` exception.
 - A hit requires a whole evidence quote after whitespace normalization,
   case preserved, and a valid version: `gold_versions` for independent rows,
-  otherwise `target_version`. Lineage is not an additional hit restriction.
+  `target_version` for version-specific rows, and either recorded evidence
+  version for unchanged controls. Lineage is not an additional hit restriction.
 - Recall@k is the fraction of distinct evidence quotes covered, averaged over
-  questions. Multi-hop also reports all-quotes@k and micro quote coverage.
-  MRR uses the first hit in the returned list (30 by default, 60 in that arm).
-  nDCG@10 has binary chunk relevance and a full-corpus ideal, so duplicate
-  overlapping chunks may be relevant; all-quotes coverage measures hop diversity.
-  The ideal uses authorized, version-valid chunks **before version scoping**.
+  questions. Equivalent text repeated across `gold_versions` is one evidence
+  unit, not several relevant hits. Multi-hop also reports all-quotes@k and micro
+  quote coverage. MRR uses the first hit in the returned list (30 by default,
+  60 in that arm). nDCG@10 uses deduplicated evidence units and a full-corpus
+  ideal. The ideal uses authorized, version-valid chunks **before version
+  scoping**.
   Questions whose spans fit no indexed chunk score zero and remain in denominators.
 - Version confusion@k means any same-lineage wrong version within k ranked
   above the first correct hit. A missing correct hit has rank infinity.
+  Version-specific rows also report correct-version R@1 and the share whose
+  top-1 result belongs to a different lineage entirely.
   False exclusion on controls means scoping removes **all** otherwise accessible
   correct chunks; its denominator is controls with at least one such chunk.
 - Unanswerable/version-unavailable rows have only top-1 score distributions and
@@ -79,6 +83,16 @@ Optional flags, all off by default:
   stage and query encoder, no reranker or expansion, title + abstract documents.
 - `--refresh`: recompute query results; corpus/embedding caches remain reusable.
 
+The sparse PostgreSQL path uses separate sanitized OR queries for prose and
+punctuation-normalized identifiers. The old `plainto_tsquery` AND behavior
+required every question word to occur in one chunk and could silently return no
+rows. Preflight prints the generated queries, match count, and top three IDs for
+five gold questions. The run aborts if an arm has zero recall on every scored
+question. In-process BM25 is available both as its original sparse-only arm and
+as `hybrid-bm25-rrf`/`hybrid-bm25-weighted`; the weighted BM25 alpha is selected
+on DEV only. `hybrid-postgres-rrf` makes the fixed PostgreSQL sparse path an
+explicit hybrid comparison.
+
 All model inference is local on the host. The host may download missing model
 weights; there are no model API calls. Existing ingestion and public tables are
 preserved; content-addressed `phase4_*` schemas hold evaluation snapshots/caches.
@@ -100,3 +114,12 @@ sanity comparison, not a claim of identical MTEB software/model revisions.
 
 No retrieval measurements have been produced in the sandbox. Host execution is
 required before choosing a winning system or making a quality claim.
+
+## Known limits
+
+- Questions were model-written from passages and therefore favor lexical overlap;
+  this is not a random user-query distribution.
+- Explicit-scope version confusion is zero by construction because the SQL
+  candidate set already contains only the requested version.
+- Small cohorts make intervals wide: the ACL allowed/scored cohort has 3 rows,
+  and controls have 8 dev and 17 test rows.

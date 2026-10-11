@@ -15,7 +15,9 @@ from .phase4_data import atomic_json
 
 RETRIEVAL_METRICS = [*(f"recall@{k}" for k in KS), "mrr", "ndcg@10"]
 EXTRA_METRICS = [*(f"all_quotes@{k}" for k in KS),
-                 *(f"version_confusion@{k}" for k in KS), "false_exclusion"]
+                 *(f"version_confusion@{k}" for k in KS),
+                 "correct_version_recall@1", "top1_different_lineage@1",
+                 "false_exclusion"]
 
 
 def distribution(values: list[float]) -> dict[str, Any]:
@@ -163,17 +165,21 @@ def cell(result: dict[str, Any]) -> str:
 def write_table(artifacts: dict[str, dict[str, Any]], parents: dict[str, str], best: list[str],
                 alpha: str, differences: list[dict[str, Any]], results: Path,
                 skipped: list[str], scifact: dict[str, Any] | None = None) -> Path:
+    provenance = next(iter(artifacts.values())).get("provenance", {})
+    parsed_count = provenance.get("parsed_version_questions")
+    total_gold = provenance.get("gold_rows")
     lines = ["# Phase 4 retrieval evaluation", "",
              "Values are means [lineage-bootstrap 95% CI]; intervals containing zero for paired "
              "differences are marked within noise. Scores use a 0–1 scale.", "",
-             f"**DEV-selected alpha arm:** {alpha}. **DEV-selected best two:** {', '.join(best)}.",
+             f"**DEV-selected alpha arms:** {alpha}. **DEV-selected best two:** {', '.join(best)}.",
+             f"**Gold questions with a parsed version:** {parsed_count} / {total_gold}.",
              "", "MRR is over the returned list (default 30); Recall is evidence-quote coverage. "
              "Models are warmed; cached latency retains the original run's measurements.", "",
              f"BGE guidance: [{MODEL_CARD_URL}]({MODEL_CARD_URL}); instruction was already on.", "",
              "Skipped flagged arms: " + (", ".join(skipped) or "none") + ".", ""]
-    header = ("| System | Parent | Split | Scored n | R@1 | R@3 | R@5 | R@10 | "
-              "MRR | nDCG@10 | Leakage |")
-    lines += [header, "|" + " --- |" * 11]
+    header = ("| System | Parent | Split | Scored n | R@1 | R@3 | R@5 | R@10 | MRR | "
+              "Correct-version R@1 | Confusion@1 | Top-1 other lineage | nDCG@10 | Leakage |")
+    lines += [header, "|" + " --- |" * 15]
     for name, artifact in artifacts.items():
         for split in ("dev", "test"):
             summary = artifact["metrics"][split]["overall"]
@@ -181,8 +187,12 @@ def write_table(artifacts: dict[str, dict[str, Any]], parents: dict[str, str], b
                 continue
             metrics = summary["metrics"]
             cells = [name, parents.get(name, "—"), split, str(metrics["mrr"]["n"]),
-                     *(cell(metrics[m]) for m in RETRIEVAL_METRICS),
-                     str(summary["acl_leakage_count"])]
+                     *(cell(metrics[m]) for m in ("recall@1", "recall@3", "recall@5",
+                                                  "recall@10", "mrr")),
+                     cell(metrics["correct_version_recall@1"]),
+                     cell(metrics["version_confusion@1"]),
+                     cell(metrics["top1_different_lineage@1"]),
+                     cell(metrics["ndcg@10"]), str(summary["acl_leakage_count"])]
             lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "## Paired nDCG@10 differences", "",
               "| Left − right | Split | Difference [95% CI] | Interpretation |",

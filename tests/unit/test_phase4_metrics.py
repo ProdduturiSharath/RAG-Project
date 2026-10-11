@@ -6,6 +6,7 @@ import pytest
 from rag_service.evaluation.metrics import (
     bootstrap,
     covers,
+    guard_nonzero_scores,
     ndcg,
     paired_bootstrap,
     score_question,
@@ -70,6 +71,23 @@ def test_ndcg_uses_full_ideal_not_just_retrieved_hits() -> None:
     assert ndcg([0, 0], [1]) == 0
     assert ndcg([], []) == 0
     assert ndcg([0] * 10 + [1], [1]) == 0
+
+
+def test_score_deduplicates_equivalent_version_evidence_for_recall_and_ndcg() -> None:
+    row = question(type="factoid", version_independent=True,
+                   gold_versions=["pg-16", "pg-17"])
+    ranked = [chunk(version="pg-16"), chunk(version="pg-17")]
+    scores = score_question(row, ranked, relevant_count=2)
+    assert scores["recall@1"] == scores["recall@10"] == 1
+    assert scores["mrr"] == 1
+    assert scores["ndcg@10"] == 1
+
+
+def test_zero_score_guard_fails_loudly_for_a_dead_arm() -> None:
+    rows = [{"metrics": {"recall@10": 0.0}} for _ in range(3)]
+    with pytest.raises(RuntimeError, match="exactly zero"):
+        guard_nonzero_scores(rows, system="sparse-postgres")
+    guard_nonzero_scores([{"metrics": {"recall@10": 0.1}}], system="healthy")
 
 
 def test_bootstrap_is_deterministic_clustered_and_paired_by_id() -> None:

@@ -20,7 +20,9 @@ from rag_service.domain import AccessPolicy, Chunk, DocumentSection
 from rag_service.ingestion.chunking import DeterministicChunker
 from rag_service.retrieval.local_models import embedding_text
 from rag_service.retrieval.memory import InMemoryHybridIndex
+from rag_service.retrieval.models import RetrievalFilters
 from rag_service.retrieval.postgres import PostgresHybridIndex
+from rag_service.retrieval.scope import parsed_version_mentions
 from rag_service.storage.serialization import chunk_from_payload, chunk_to_payload
 
 from .experiments import ExperimentConfig
@@ -132,6 +134,29 @@ def preflight(config: ExperimentConfig, database_url: str, results: Path) -> dic
         raise ValueError("gold is not byte-reproducible from the committed reviews/audit")
     chunks = tuple(chunk_from_payload(row["payload"]) for row in rows)
     policy = yaml.safe_load(Path("data/acl_demo.yaml").read_text())
+    version_labels = tuple(sorted({row["target_version"] for row in gold}))
+    parsed_version_rows = sum(
+        bool(parsed_version_mentions(row["question"], version_labels)) for row in gold
+    )
+    sparse_index = PostgresHybridIndex(dsn, embedder_id=BASE_EMBEDDER)
+    sparse_diagnostics: list[dict[str, Any]] = []
+    for row in gold[:5]:
+        diagnostic = sparse_index.sparse_diagnostic(
+            row["question"],
+            filters=RetrievalFilters(
+                principal=row["requester"],
+                groups=policy_groups(policy, row["requester"]),
+            ),
+        )
+        item = {"id": row["id"], "question": row["question"], **diagnostic}
+        sparse_diagnostics.append(item)
+        print(
+            f"Sparse diagnostic {row['id']}: plain={diagnostic['plain_tsquery']!r}; "
+            f"identifier={diagnostic['identifier_tsquery']!r}; "
+            f"matches={diagnostic['matching_chunk_count']}; "
+            f"top3={diagnostic['top_chunk_ids']}",
+            flush=True,
+        )
     for row in gold:
         if row["type"] == "acl":
             allowance = bool(set(policy_groups(policy, row["requester"]))
@@ -154,10 +179,13 @@ def preflight(config: ExperimentConfig, database_url: str, results: Path) -> dic
         "code_sha256": digest({str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in source_files}),
         "chunk_counts": actual, "gold_rows": len(gold),
+        "parsed_version_questions": parsed_version_rows,
+        "sparse_diagnostics": sparse_diagnostics,
     }
     atomic_json(results / "phase4_preflight.json", provenance)
     print(f"Preflight OK: Postgres reachable, {len(chunks)} chunks, "
-          f"{len(gold)} gold rows validated",
+          f"{len(gold)} gold rows validated, "
+          f"parsed versions={parsed_version_rows}/{len(gold)}",
           flush=True)
     return {"dsn": dsn, "gold": gold, "chunks": chunks, "policy": policy,
             "provenance": provenance}
@@ -198,7 +226,7 @@ class Snapshot:
         self.acl_dsn = make_conninfo(dsn, options=f"-c search_path={self.schema}_acl,public")
         self.chunks = chunks
         self.policy = policy
-        self._memory: dict[bool, InMemoryHybridIndex] = {}
+        self._memory: dict[tuple[str, bool, str], InMemoryHybridIndex] = {}
         self._prepare()
 
     def _prepare(self) -> None:
@@ -318,13 +346,27 @@ class Snapshot:
         if config.sparse_method != "bm25":
             return PostgresHybridIndex(self.acl_dsn if acl else self.dsn,
                                        embedder_id=config.embedder_id)
-        if config.search_mode != "sparse":
-            raise ValueError("BM25 baseline must use sparse-only search")
-        if acl not in self._memory:
+        key = (config.sparse_method, acl, config.embedder_id)
+        if key not in self._memory:
             index = InMemoryHybridIndex()
             chunks = [replace(c, access_policy=AccessPolicy(
                 groups=tuple(self.policy["restricted_allowed_groups"]))
                 if acl and is_restricted(c, self.policy) else None) for c in self.chunks]
-            index.upsert(chunks)
-            self._memory[acl] = index
-        return self._memory[acl]
+            dense_vectors: tuple[tuple[float, ...], ...] = ()
+            if config.search_mode != "sparse":
+                with psycopg.connect(self.dsn) as conn:
+                    rows = conn.execute("""SELECT c.chunk_key, e.embedding::text
+                        FROM chunks c
+                        JOIN chunk_embeddings ce ON ce.chunk_id=c.id AND ce.embedder_id=%s
+                        JOIN embeddings e ON e.content_hash=ce.content_hash
+                            AND e.embedder_id=ce.embedder_id
+                        ORDER BY c.id""", (config.embedder_id,)).fetchall()
+                vectors = {str(row[0]): tuple(json.loads(row[1])) for row in rows}
+                if set(vectors) != {chunk.chunk_id for chunk in chunks}:
+                    raise ValueError(
+                        f"BM25 hybrid index lacks dense vectors for {config.embedder_id}"
+                    )
+                dense_vectors = tuple(vectors[chunk.chunk_id] for chunk in chunks)
+            index.upsert(chunks, dense_vectors=dense_vectors)
+            self._memory[key] = index
+        return self._memory[key]

@@ -31,6 +31,12 @@ parameters:
     - {name: dense-no-instruction, parent: dense-bge-small, overrides: {query_instruction: false}}
     - {name: sparse-postgres, parent: hybrid-rrf, overrides: {search_mode: sparse}}
     - {name: bm25, parent: sparse-postgres, overrides: {sparse_method: bm25}}
+    - {name: hybrid-bm25-rrf, parent: hybrid-rrf, overrides: {sparse_method: bm25}}
+    - {name: hybrid-postgres-rrf, parent: hybrid-bm25-rrf, overrides: {sparse_method: postgres}}
+    - {name: hybrid-bm25-weighted, parent: hybrid-bm25-rrf, overrides: {fusion: weighted}}
+    - {name: hybrid-bm25-weighted-025, parent: hybrid-bm25-weighted, overrides: {alpha: 0.25}, tune: bm25-alpha}
+    - {name: hybrid-bm25-weighted-050, parent: hybrid-bm25-weighted, overrides: {alpha: 0.5}, tune: bm25-alpha}
+    - {name: hybrid-bm25-weighted-075, parent: hybrid-bm25-weighted, overrides: {alpha: 0.75}, tune: bm25-alpha}
     - {name: dense-hash, parent: dense-bge-small, overrides: {dense_model: hash-v1}}
     - {name: weighted-reference, parent: default, overrides: {fusion: weighted}, dev_only: true}
     - {name: weighted-025, parent: weighted-reference, overrides: {alpha: 0.25}, tune: alpha}

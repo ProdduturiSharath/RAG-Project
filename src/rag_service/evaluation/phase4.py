@@ -20,7 +20,7 @@ from rag_service.retrieval.reranking import NoReranker, TokenOverlapReranker
 from rag_service.retrieval.service import HybridRetriever, RetrievalConfig
 
 from .experiments import ExperimentConfig, collect_runtime_provenance
-from .metrics import covers, score_question
+from .metrics import covers, guard_nonzero_scores, score_question
 from .phase4_config import SystemConfig, systems
 from .phase4_data import (
     Snapshot,
@@ -85,6 +85,19 @@ class Resources:
                                    and covers(row, self.records[config.chunk_tokens][c.chunk_id]))
         return self.qrels[key]
 
+    @staticmethod
+    def refresh_metrics(artifact: dict[str, Any], seed: int, samples: int) -> None:
+        """Recompute metric definitions from cached rankings without retrieval."""
+
+        for row in artifact["rows"]:
+            old_false_exclusion = row.get("metrics", {}).get("false_exclusion")
+            row["metrics"] = score_question(
+                row, row.get("retrieved", []), row.get("relevant_chunk_count", 0)
+            )
+            if old_false_exclusion is not None:
+                row["metrics"]["false_exclusion"] = old_false_exclusion
+        artifact["metrics"] = summarize(artifact["rows"], seed, samples)
+
     def retriever(self, config: SystemConfig, *, acl: bool) -> HybridRetriever:
         snapshot = self.snapshot(config)
         encoder = self.encoder(config) if config.search_mode != "sparse" else HashEmbeddingEncoder()
@@ -114,12 +127,50 @@ class Resources:
 
 def experiment(suite: ExperimentConfig, name: str, system: SystemConfig,
                data: dict[str, Any]) -> ExperimentConfig:
+    pipeline = system.model_dump()
+    if system.search_mode != "dense" and system.sparse_method == "postgres":
+        pipeline["retrieval_revision"] = "postgres-sparse-or-v2"
+    if system.version_mode == "auto":
+        pipeline["scope_revision"] = "auto-fallback-v2"
+    stable_keys = ("corpus_sha256", "embeddings_fingerprint", "gold_sha256",
+                   "policy_sha256", "chunk_counts", "gold_rows")
+    stable_inputs = {key: data["provenance"][key] for key in stable_keys}
     return ExperimentConfig(
         experiment_id=suite.experiment_id, seed=suite.seed, dataset=suite.dataset, system=name,
-        parameters={"pipeline": system.model_dump(), "embedder_id": system.embedder_id,
+        parameters={"pipeline": pipeline, "embedder_id": system.embedder_id,
                     "bootstrap_samples": suite.parameters["bootstrap_samples"],
-                    "inputs": data["provenance"]},
+                    "inputs": stable_inputs},
     )
+
+
+def _compatible_cached_config(candidate: dict[str, Any], expected: ExperimentConfig) -> bool:
+    """Find pre-revision artifacts while keeping the new semantic hash stable."""
+
+    if candidate.get("system") != expected.system:
+        return False
+    if candidate.get("experiment_id") != expected.experiment_id:
+        return False
+    if candidate.get("dataset") != expected.dataset or candidate.get("seed") != expected.seed:
+        return False
+    expected_parameters = expected.model_dump()["parameters"]
+    actual_parameters = candidate.get("parameters", {})
+    if actual_parameters.get("pipeline") != expected_parameters["pipeline"]:
+        return False
+    if actual_parameters.get("embedder_id") != expected_parameters["embedder_id"]:
+        return False
+    return all(actual_parameters.get("inputs", {}).get(key) == value
+               for key, value in expected_parameters["inputs"].items())
+
+
+def _find_cached_artifact(results: Path, expected: ExperimentConfig) -> dict[str, Any] | None:
+    for path in sorted(results.glob("*.json")):
+        try:
+            artifact = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if _compatible_cached_config(artifact.get("config", {}), expected):
+            return artifact
+    return None
 
 
 async def run_split(config: ExperimentConfig, system: SystemConfig, split: str,
@@ -129,6 +180,9 @@ async def run_split(config: ExperimentConfig, system: SystemConfig, split: str,
     finished = {row["id"] for row in artifact["rows"]}
     pending = [row for row in rows if row["id"] not in finished]
     if not pending and split in artifact["completed_splits"]:
+        Resources.refresh_metrics(artifact, config.seed, config.parameters["bootstrap_samples"])
+        guard_nonzero_scores(artifact["rows"], system=config.system)
+        atomic_json(path, artifact)
         return artifact
     print(f"{config.system}: {split}, {len(pending)} questions", flush=True)
     setup_start = time.perf_counter()
@@ -193,8 +247,8 @@ async def run_split(config: ExperimentConfig, system: SystemConfig, split: str,
                                f"{len(leakage)} chunks; "
                                f"diagnostic saved to {path}")
     artifact["rows"].sort(key=lambda row: (row["split"], row["id"]))
-    artifact["metrics"] = summarize(artifact["rows"], config.seed,
-                                      config.parameters["bootstrap_samples"])
+    Resources.refresh_metrics(artifact, config.seed, config.parameters["bootstrap_samples"])
+    guard_nonzero_scores(artifact["rows"], system=config.system)
     artifact["completed_splits"] = sorted(set(artifact["completed_splits"]) | {split})
     atomic_json(path, artifact)
     return artifact
@@ -227,9 +281,11 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
     parents = {arm["name"]: arm["parent"] for arm in suite.parameters["arms"]}
     for name, exp in experiments.items():
         path = results / f"{exp.config_hash}.json"
-        artifact = {"config": exp.model_dump(), "config_hash": exp.config_hash, "seed": exp.seed,
-                    "provenance": {**collect_runtime_provenance(), **data["provenance"]},
-                    "rows": [], "metrics": {}, "completed_splits": []}
+        artifact: dict[str, Any] = {
+            "config": exp.model_dump(), "config_hash": exp.config_hash, "seed": exp.seed,
+            "provenance": {**collect_runtime_provenance(), **data["provenance"]},
+            "rows": [], "metrics": {}, "completed_splits": [],
+        }
         if path.exists() and not refresh:
             artifact = json.loads(path.read_text())
             if artifact["config"] != exp.model_dump():
@@ -241,16 +297,36 @@ async def run_suite(suite: ExperimentConfig, results: Path, flags: set[str], *,
             if any(row["leakage_count"] for row in artifact["rows"]):
                 raise RuntimeError(f"cached result contains ACL leakage: {path}; "
                                    "fix then --refresh")
+        elif not refresh:
+            cached = _find_cached_artifact(results, exp)
+            if cached is not None:
+                artifact = cached
+                artifact["config"] = exp.model_dump()
+                artifact["config_hash"] = exp.config_hash
+                provenance: dict[str, Any] = dict(artifact.get("provenance", {}))
+                provenance.update(collect_runtime_provenance())
+                provenance.update(data["provenance"])
+                artifact["provenance"] = provenance
+                atomic_json(path, artifact)
         artifacts[name] = await run_split(exp, configs[name], "dev", resources, artifact, path)
-    alpha_arms = [arm["name"] for arm in suite.parameters["arms"] if arm.get("tune") == "alpha"]
-    alpha = min(alpha_arms, key=lambda name: (-dev_score(artifacts[name]), name))
+    tune_groups: dict[str, list[str]] = {}
+    for arm in suite.parameters["arms"]:
+        if arm.get("tune"):
+            tune_groups.setdefault(str(arm["tune"]), []).append(arm["name"])
+    selected_tunes = {
+        group: min(names, key=lambda name: (-dev_score(artifacts[name]), name))
+        for group, names in tune_groups.items()
+    }
+    alpha = "; ".join(f"{group}={name}" for group, name in sorted(selected_tunes.items()))
     dev_only = {arm["name"] for arm in suite.parameters["arms"] if arm.get("dev_only")}
     test_names = [name for name in configs if name not in dev_only
-                  and (name not in alpha_arms or name == alpha)]
+                  and (not any(name in names for names in tune_groups.values())
+                       or name in selected_tunes.values())]
     best = sorted(test_names, key=lambda name: (-dev_score(artifacts[name]), name))[:2]
     # This decision is persisted BEFORE any test split is evaluated.
     atomic_json(results / "phase4_selection.json", {
         "criterion": "dev ndcg@10 descending, name ascending for ties", "alpha_arm": alpha,
+        "tuned_arms": selected_tunes,
         "best_two": best, "dev_scores": {name: dev_score(artifacts[name]) for name in configs},
         "input_fingerprints": data["provenance"],
     })

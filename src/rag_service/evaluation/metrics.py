@@ -18,14 +18,27 @@ def normalize(text: str) -> str:
     return " ".join(text.split())
 
 
+def evidence_units(row: Mapping[str, Any]) -> tuple[str, ...]:
+    """Deduplicate equivalent evidence quotes across gold versions."""
+
+    return tuple(dict.fromkeys(
+        normalize(str(span.get("quote", "")))
+        for span in row["evidence_spans"]
+        if normalize(str(span.get("quote", "")))
+    ))
+
+
 def covers(row: Mapping[str, Any], chunk: Mapping[str, Any]) -> frozenset[int]:
     """Text containment, case preserved, plus the question's version rule.
 
     Lineage is deliberately not an extra hit requirement: an equivalent quote
     elsewhere in the corpus is evidence too. Lineage *is* required for confusion.
     """
-    independent = row["version_independent"] and row.get("type") != "version_specific"
-    versions = row["gold_versions"] if independent else [row["target_version"]]
+    if row.get("type") == "unchanged_control":
+        versions = [span.get("version") for span in row["evidence_spans"]]
+    else:
+        independent = row["version_independent"] and row.get("type") != "version_specific"
+        versions = row["gold_versions"] if independent else [row["target_version"]]
     if chunk["version"] not in versions:
         return frozenset()
     text = chunk.get("normalized_text")
@@ -33,6 +46,13 @@ def covers(row: Mapping[str, Any], chunk: Mapping[str, Any]) -> frozenset[int]:
         text = normalize(chunk["text"])
     return frozenset(i for i, span in enumerate(row["evidence_spans"])
                      if normalize(span["quote"]) and normalize(span["quote"]) in text)
+
+
+def covered_units(row: Mapping[str, Any], chunk: Mapping[str, Any]) -> frozenset[str]:
+    return frozenset(
+        normalize(str(row["evidence_spans"][index].get("quote", "")))
+        for index in covers(row, chunk)
+    )
 
 
 def version_confusion(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]], k: int) -> int:
@@ -44,6 +64,15 @@ def version_confusion(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]
     return int(any(chunk.get("lineage_key") in lineages
                    and chunk["version"] != row["target_version"]
                    for chunk in ranked[:min(k, first_correct)]))
+
+
+def top1_different_lineage(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]]) -> int:
+    if not ranked:
+        return 0
+    lineages = {row["lineage_key"]} | {
+        span.get("lineage_key", row["lineage_key"]) for span in row["evidence_spans"]
+    }
+    return int(ranked[0].get("lineage_key") not in lineages)
 
 
 def ndcg(relevance: Sequence[float], ideal: Sequence[float], k: int = 10) -> float:
@@ -59,22 +88,42 @@ def score_question(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]],
                    relevant_count: int) -> dict[str, float]:
     if row["type"] not in SCORED_TYPES and not (row["type"] == "acl" and row["acl_allowance"]):
         return {}
-    total = len(row["evidence_spans"])
+    units = evidence_units(row)
+    total = len(units)
     if not total:
         raise ValueError(f"scored question has no evidence: {row['id']}")
-    coverage = [covers(row, chunk) for chunk in ranked]
+    coverage = [covered_units(row, chunk) for chunk in ranked]
     scores: dict[str, float] = {}
     for k in KS:
         found = set().union(*coverage[:k])
         scores[f"recall@{k}"] = len(found) / total
         scores[f"all_quotes@{k}"] = float(len(found) == total)
     scores["mrr"] = next((1 / rank for rank, found in enumerate(coverage, 1) if found), 0.0)
-    scores["ndcg@10"] = ndcg([float(bool(found)) for found in coverage],
-                             [1.0] * min(relevant_count, 10))
+    seen: set[str] = set()
+    relevance: list[float] = []
+    for covered in coverage[:10]:
+        new_units: set[str] = set(covered).difference(seen)
+        relevance.append(float(bool(new_units)))
+        seen.update(covered)
+    scores["ndcg@10"] = ndcg(relevance, [1.0] * min(total, 10))
     if row["type"] == "version_specific":
+        scores["correct_version_recall@1"] = scores["recall@1"]
+        scores["top1_different_lineage@1"] = float(top1_different_lineage(row, ranked))
         scores.update({f"version_confusion@{k}": float(version_confusion(row, ranked, k))
                        for k in KS})
     return scores
+
+
+def guard_nonzero_scores(rows: Sequence[Mapping[str, Any]], *, system: str,
+                         metric: str = "recall@10") -> None:
+    """Abort when an arm produced no retrieval signal on any scored question."""
+
+    values = [float(row["metrics"][metric]) for row in rows if metric in row["metrics"]]
+    if values and all(value == 0.0 for value in values):
+        raise RuntimeError(
+            f"retrieval arm {system!r} scored exactly zero for {len(values)} "
+            f"scored questions ({metric}); inspect its query/index path"
+        )
 
 
 def bootstrap(values: Sequence[float], lineages: Sequence[str], *, seed: int = 42,
