@@ -83,7 +83,9 @@ Optional flags, all off by default:
   stage and query encoder, no reranker or expansion, title + abstract documents.
 - `--refresh`: recompute query results; corpus/embedding caches remain reusable.
   Snapshot keys use corpus/chunk/policy identity rather than source-code hashes,
-  so a harness-only fix does not re-embed metadata-prefixed or optional arms.
+  and compatible prior code-hash snapshots are adopted by exact chunk/version/
+  restriction identity, so a harness-only fix does not re-embed metadata-prefixed
+  or optional arms.
 
 The sparse PostgreSQL path uses separate sanitized OR queries for prose and
 punctuation-normalized identifiers. The old `plainto_tsquery` AND behavior

@@ -14,6 +14,7 @@ from rag_service.retrieval import (
     resolve_scope,
 )
 from rag_service.retrieval.encoders import tokenize
+from rag_service.retrieval.postgres import sparse_query_texts
 from rag_service.retrieval.service import HybridRetriever
 
 
@@ -143,6 +144,12 @@ class RetrievalPrimitiveTests(unittest.TestCase):
 
         self.assertEqual(results[0].chunk.text, chunks[0].text)
         self.assertGreater(results[0].sparse_score, results[1].sparse_score)
+
+    def test_postgres_sparse_queries_or_terms_and_normalize_identifiers(self) -> None:
+        plain, identifiers = sparse_query_texts("What does max_wal-senders do?")
+
+        self.assertEqual(plain, "'max_wal-senders'")
+        self.assertEqual(identifiers, "'max' | 'wal' | 'senders'")
 
     def test_auto_scope_selects_one_explicit_version_mention(self) -> None:
         result = resolve_scope(

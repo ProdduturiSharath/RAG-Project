@@ -11,6 +11,7 @@ from typing import Any
 import psycopg
 import yaml
 from jsonschema import Draft202012Validator
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
@@ -222,13 +223,74 @@ class Snapshot:
 
     def __init__(self, dsn: str, key: str, chunks: tuple[Chunk, ...],
                  policy: dict[str, Any]) -> None:
+        self._base_dsn = dsn
         self.schema = "phase4_" + digest({"key": key, "format": 1})[:20]
-        self.dsn = make_conninfo(dsn, options=f"-c search_path={self.schema},public")
-        self.acl_dsn = make_conninfo(dsn, options=f"-c search_path={self.schema}_acl,public")
+        self.dsn = ""
+        self.acl_dsn = ""
+        self._set_schema(self.schema)
         self.chunks = chunks
         self.policy = policy
+        self._adopt_compatible_schema()
         self._memory: dict[tuple[bool, bool], InMemoryHybridIndex] = {}
         self._prepare()
+
+    def _set_schema(self, schema: str) -> None:
+        self.schema = schema
+        self.dsn = make_conninfo(self._base_dsn, options=f"-c search_path={schema},public")
+        self.acl_dsn = make_conninfo(
+            self._base_dsn, options=f"-c search_path={schema}_acl,public"
+        )
+
+    def _chunk_fingerprint(self) -> str:
+        values = sorted(
+            "\x1f".join((
+                chunk.chunk_id,
+                chunk.version,
+                chunk.content_hash or "",
+                str(is_restricted(chunk, self.policy)).lower(),
+            ))
+            for chunk in self.chunks
+        )
+        return hashlib.md5("\x1e".join(values).encode(), usedforsecurity=False).hexdigest()
+
+    def _adopt_compatible_schema(self) -> None:
+        """Reuse a prior code-hash snapshot when its materialized corpus matches."""
+
+        expected_count = len(self.chunks)
+        expected_fingerprint = self._chunk_fingerprint()
+        matches: list[tuple[int, str]] = []
+        with psycopg.connect(self._base_dsn) as conn:
+            candidates = conn.execute("""
+                SELECT n.nspname
+                FROM pg_namespace n
+                WHERE n.nspname ~ '^phase4_[0-9a-f]{20}$'
+                  AND to_regclass(n.nspname || '.manifest') IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM pg_namespace acl
+                      WHERE acl.nspname = n.nspname || '_acl'
+                  )
+                ORDER BY n.nspname
+            """).fetchall()
+            for candidate_row in candidates:
+                candidate = str(candidate_row[0])
+                identity = conn.execute(sql.SQL("""
+                    SELECT count(*) AS count,
+                           md5(coalesce(string_agg(
+                               c.chunk_key || chr(31) || v.product_version || chr(31) ||
+                               c.content_hash || chr(31) || c.restricted::text,
+                               chr(30) ORDER BY c.chunk_key), '')) AS fingerprint
+                    FROM {}.chunks c
+                    JOIN {}.document_versions v ON v.id=c.document_version_id
+                """).format(sql.Identifier(candidate), sql.Identifier(candidate))).fetchone()
+                if (identity is None or int(identity[0]) != expected_count
+                        or identity[1] != expected_fingerprint):
+                    continue
+                embedding_count = conn.execute(sql.SQL(
+                    "SELECT count(*) FROM {}.embeddings"
+                ).format(sql.Identifier(candidate))).fetchone()
+                matches.append((int(embedding_count[0]) if embedding_count else 0, candidate))
+        if matches:
+            self._set_schema(max(matches, key=lambda item: (item[0], item[1]))[1])
 
     def _prepare(self) -> None:
         with psycopg.connect(self.dsn) as conn:
