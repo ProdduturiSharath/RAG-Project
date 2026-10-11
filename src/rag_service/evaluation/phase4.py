@@ -67,7 +67,14 @@ class Resources:
         tokens = config.chunk_tokens
         if tokens not in self.snapshots:
             chunks = rechunk(self.data["chunks"], tokens)
-            key = digest({"provenance": self.data["provenance"], "chunk_tokens": tokens})
+            provenance = self.data["provenance"]
+            key = digest({
+                "corpus_sha256": provenance["corpus_sha256"],
+                "chunk_counts": provenance["chunk_counts"],
+                "policy_sha256": provenance["policy_sha256"],
+                "chunk_tokens": tokens,
+                "snapshot_format": 2,
+            })
             snapshot = Snapshot(self.data["dsn"], key, chunks, self.data["policy"])
             self.snapshots[tokens] = snapshot
             self.records[tokens] = {c.chunk_id: chunk_record(c) for c in chunks}

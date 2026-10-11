@@ -22,6 +22,7 @@ from rag_service.retrieval.local_models import embedding_text
 from rag_service.retrieval.memory import InMemoryHybridIndex
 from rag_service.retrieval.models import RetrievalFilters
 from rag_service.retrieval.postgres import PostgresHybridIndex
+from rag_service.retrieval.postgres_bm25 import PostgresBm25Index
 from rag_service.retrieval.scope import parsed_version_mentions
 from rag_service.storage.serialization import chunk_from_payload, chunk_to_payload
 
@@ -226,7 +227,7 @@ class Snapshot:
         self.acl_dsn = make_conninfo(dsn, options=f"-c search_path={self.schema}_acl,public")
         self.chunks = chunks
         self.policy = policy
-        self._memory: dict[tuple[str, bool, str, bool], InMemoryHybridIndex] = {}
+        self._memory: dict[tuple[bool, bool], InMemoryHybridIndex] = {}
         self._prepare()
 
     def _prepare(self) -> None:
@@ -346,28 +347,22 @@ class Snapshot:
         if config.sparse_method != "bm25":
             return PostgresHybridIndex(self.acl_dsn if acl else self.dsn,
                                        embedder_id=config.embedder_id)
-        key = (config.sparse_method, acl, config.embedder_id,
-               config.search_mode != "sparse")
+        hybrid = config.search_mode != "sparse"
+        key = (acl, hybrid)
         if key not in self._memory:
             index = InMemoryHybridIndex()
-            chunks = [replace(c, access_policy=AccessPolicy(
-                groups=tuple(self.policy["restricted_allowed_groups"]))
-                if acl and is_restricted(c, self.policy) else None) for c in self.chunks]
-            dense_vectors: tuple[tuple[float, ...], ...] = ()
-            if config.search_mode != "sparse":
-                with psycopg.connect(self.dsn) as conn:
-                    rows = conn.execute("""SELECT c.chunk_key, e.embedding::text
-                        FROM chunks c
-                        JOIN chunk_embeddings ce ON ce.chunk_id=c.id AND ce.embedder_id=%s
-                        JOIN embeddings e ON e.content_hash=ce.content_hash
-                            AND e.embedder_id=ce.embedder_id
-                        ORDER BY c.id""", (config.embedder_id,)).fetchall()
-                vectors = {str(row[0]): tuple(json.loads(row[1])) for row in rows}
-                if set(vectors) != {chunk.chunk_id for chunk in chunks}:
-                    raise ValueError(
-                        f"BM25 hybrid index lacks dense vectors for {config.embedder_id}"
-                    )
-                dense_vectors = tuple(vectors[chunk.chunk_id] for chunk in chunks)
-            index.upsert(chunks, dense_vectors=dense_vectors)
+            chunks = []
+            for chunk in self.chunks:
+                restricted = acl and is_restricted(chunk, self.policy)
+                chunks.append(replace(
+                    chunk,
+                    access_policy=AccessPolicy(groups=tuple(self.policy["restricted_allowed_groups"]))
+                    if restricted else None,
+                ))
+            index.upsert(chunks)
             self._memory[key] = index
+        if hybrid:
+            return PostgresBm25Index(self.acl_dsn if acl else self.dsn,
+                                     embedder_id=config.embedder_id,
+                                     sparse_index=self._memory[key])
         return self._memory[key]
