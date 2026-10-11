@@ -87,11 +87,6 @@ class HybridRetriever:
             "status": scope.status,
             "versions": scope.versions,
         }))
-        if scope.status == "ambiguous":
-            result = RetrievalResult((), scope, trace_id, tuple(traces))
-            self._save_trace(query, scope, result)
-            return result
-
         started = time.perf_counter()
         dense: tuple[ScoredChunk, ...] = ()
         if self.config.search_mode != "sparse":

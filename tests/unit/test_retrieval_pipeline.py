@@ -69,7 +69,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(set(index.traces), {result.trace_id})
 
-    async def test_auto_scope_reports_ambiguity_instead_of_mixing_versions(self) -> None:
+    async def test_auto_scope_reports_ambiguity_but_falls_back_to_unscoped_search(self) -> None:
         index, dense, sparse = self._index()
         retriever = HybridRetriever(
             index, dense, sparse, config=RetrievalConfig(version_mode="auto")
@@ -77,14 +77,16 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         result = await retriever.retrieve_detailed(
             "What is the sender limit?",
-            top_k=1,
+            top_k=2,
             candidate_k=2,
             filters=RetrievalFilters(groups=("operations",)),
         )
 
-        self.assertEqual(result.matches, ())
+        self.assertEqual({match.chunk.version for match in result.matches}, {"pg16", "pg17"})
         self.assertEqual(result.scope.status, "ambiguous")
         self.assertEqual(set(result.scope.versions), {"pg16", "pg17"})
+        self.assertIsNone(result.scope.filters.product_version)
+        self.assertIsNone(result.scope.filters.scopes)
 
     def test_sync_compatibility_path_uses_the_traced_pipeline(self) -> None:
         index, dense, sparse = self._index()
