@@ -629,4 +629,4 @@ owner_written rows. PR #4 remains open and unmerged; Phase 4 has not started.
 - `phase-4-evaluation` is based on merged `main`; both human-review inputs are committed and all 212 gold rows rebuild byte-for-byte.
 - Harness fixes cover OR sparse FTS, auto-scope fallback, deduplicated evidence metrics, cached-ranking reuse, zero-score guards, and BM25 hybrids; protocol: [phase4_evaluation.md](phase4_evaluation.md).
 - Host command remains `bash scripts/run_phase4.sh --metadata-prefix --scifact`; preflight now prints five sparse diagnostics and parsed-version count. Phase 5 has not started.
-- Sandbox verification follows after this patch; host SQL/model runs and measured results remain pending.
+- Sandbox: 15 focused tests, Ruff, mypy, config-arm validation and final-gold validation pass; full unit run is 54 passed/9 blocked by absent sentence-transformers, and host SQL/model rerun remains pending.
