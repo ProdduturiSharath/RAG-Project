@@ -118,6 +118,12 @@ Commit that measured artifact with the results to activate the offline CI replay
 gate. Before the first host run the cache-dependent CI step is skipped; no
 synthetic retrieval outcomes are substituted for measured ones.
 
+The closeout host artifacts exceeded the 25 MB commit limit (930.03 MiB
+including the 50 per-arm JSON result files). This closeout commits
+`docs/phase4_findings.md`, `results/phase4_table.md`,
+`results/phase4_comparisons.json`, and `results/failures_*.md`; per-arm JSON,
+preflight/selection/smoke caches, logs, and embedding caches remain local.
+
 ## SciFact reference
 
 The [official BEIR dataset list](https://github.com/beir-cellar/beir#beers-available-datasets)

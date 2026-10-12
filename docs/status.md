@@ -629,5 +629,5 @@ evaluation is pending.
 ## Phase 4 implementation — 2026-10-10
 - `phase-4-evaluation` is based on merged `main`; both human-review inputs are committed and all 212 gold rows rebuild byte-for-byte.
 - Phase 4 closeout adds the DEV-stacked `recommended` and cross-encoder variant, paired comparisons, and JSON-driven `docs/phase4_findings.md` generation; Phase 5 has not started.
-- Host command remains `bash scripts/run_phase4.sh --metadata-prefix --scifact`; it runs all selected arms and writes the findings document after evaluation.
-- Sandbox: 19 focused tests, Ruff and mypy pass; full unit run is 58 passed/9 blocked by absent sentence-transformers, and the closeout host run remains pending.
+- Host Phase 4 ran with `bash scripts/run_phase4.sh --metadata-prefix --scifact`; closeout findings and aggregate reports are ready, while per-arm JSON artifacts remain local because they exceed the commit-size limit.
+- `results_run1_backup/` was removed; Phase 5 has not started.
