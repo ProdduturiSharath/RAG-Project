@@ -15,7 +15,7 @@ from .models import (
 )
 from .pinecone import PineconeHybridIndex, sparse_term_index
 from .postgres import PostgresHybridIndex
-from .scope import resolve_scope
+from .scope import parsed_version_mentions, resolve_scope
 from .service import HybridRetriever, RetrievalConfig
 
 __all__ = [
@@ -37,5 +37,6 @@ __all__ = [
     "bm25_search",
     "fuse",
     "resolve_scope",
+    "parsed_version_mentions",
     "sparse_term_index",
 ]

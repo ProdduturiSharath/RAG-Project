@@ -3,6 +3,7 @@ annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
 ast-serialize==0.12.0
+attrs==26.1.0
 certifi==2026.7.22
 click==8.5.0
 cloudpickle==3.1.2
@@ -19,6 +20,8 @@ idna==3.20
 iniconfig==2.3.0
 jinja2==3.1.6
 joblib==1.6.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
 librt==0.16.0
 markdown-it-py==4.2.0
 markupsafe==3.0.4
@@ -43,8 +46,10 @@ pytest==8.4.2
 pytest-asyncio==0.26.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
+referencing==0.37.0
 regex==2026.9.29
 rich==15.0.0
+rpds-py==2026.9.1
 ruff==0.16.10
 safetensors==0.8.0
 scikit-learn==1.9.1

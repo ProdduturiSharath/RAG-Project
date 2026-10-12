@@ -57,7 +57,20 @@
   },
   "allOf": [{
     "if": {"properties": {"author": {"const": "llm_drafted"}}},
-    "then": {"properties": {"validated": {"const": false}, "split": {"enum": ["dev", "test"]}}}
+    "then": {
+      "properties": {"split": {"enum": ["dev", "test"]}},
+      "anyOf": [
+        {"properties": {"validated": {"const": false}}},
+        {
+          "required": ["review_status", "review_method"],
+          "properties": {
+            "validated": {"const": true},
+            "review_status": {"const": "accepted"},
+            "review_method": {"const": "model_audit"}
+          }
+        }
+      ]
+    }
   }, {
     "if": {"properties": {"version_independent": {"const": true}}},
     "then": {"required": ["gold_versions"], "properties": {"gold_versions": {"minItems": 1}}}

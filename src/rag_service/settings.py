@@ -61,6 +61,10 @@ class Settings(BaseSettings):
             "RAG_METADATA_PREFIXED_EMBEDDINGS", "metadata_prefixed_embeddings"
         ),
     )
+    query_instruction: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_QUERY_INSTRUCTION", "query_instruction"),
+    )
     fusion_method: Literal["rrf", "weighted"] = Field(
         default="rrf",
         validation_alias=AliasChoices("RAG_FUSION_METHOD", "fusion_method"),

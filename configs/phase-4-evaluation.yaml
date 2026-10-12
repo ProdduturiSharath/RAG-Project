@@ -1,0 +1,59 @@
+experiment_id: phase-4-evaluation
+seed: 42
+dataset: data/eval/gold.jsonl
+system: phase4-suite
+parameters:
+  expected_rows: 212
+  expected_chunks: {pg-15: 10777, pg-16: 10912, pg-17: 11030}
+  bootstrap_samples: 2000
+  default:
+    dense_model: bge-small
+    query_instruction: true
+    search_mode: hybrid
+    sparse_method: postgres
+    fusion: rrf
+    alpha: 0.55
+    reranker: cross-encoder
+    rerank_top_n: 30
+    candidate_k: 30
+    parent_expansion: true
+    metadata_prefixed: false
+    version_mode: none
+    chunk_tokens: 220
+  # Every edge changes exactly ONE setting; pure baselines have explicit
+  # no-rerank/no-expansion controls rather than hidden simultaneous changes.
+  arms:
+    - {name: query-instruction-off, parent: default, overrides: {query_instruction: false}}
+    - {name: reranker-token, parent: default, overrides: {reranker: token-overlap}}
+    - {name: reranker-none, parent: default, overrides: {reranker: none}}
+    - {name: hybrid-rrf, parent: reranker-none, overrides: {parent_expansion: false}}
+    - {name: dense-bge-small, parent: hybrid-rrf, overrides: {search_mode: dense}}
+    - {name: dense-no-instruction, parent: dense-bge-small, overrides: {query_instruction: false}}
+    - {name: sparse-postgres, parent: hybrid-rrf, overrides: {search_mode: sparse}}
+    - {name: bm25, parent: sparse-postgres, overrides: {sparse_method: bm25}}
+    - {name: hybrid-bm25-rrf, parent: hybrid-rrf, overrides: {sparse_method: bm25}}
+    - {name: hybrid-postgres-rrf, parent: hybrid-bm25-rrf, overrides: {sparse_method: postgres}}
+    - {name: hybrid-bm25-weighted, parent: hybrid-bm25-rrf, overrides: {fusion: weighted}}
+    - {name: hybrid-bm25-weighted-025, parent: hybrid-bm25-weighted, overrides: {alpha: 0.25}, tune: bm25-alpha}
+    - {name: hybrid-bm25-weighted-050, parent: hybrid-bm25-weighted, overrides: {alpha: 0.5}, tune: bm25-alpha}
+    - {name: hybrid-bm25-weighted-075, parent: hybrid-bm25-weighted, overrides: {alpha: 0.75}, tune: bm25-alpha}
+    # Closeout stacks the frozen DEV-selected alpha with automatic version scope.
+    # Parent expansion and reranking are already off in the weighted BM25 parent.
+    - {name: recommended, parent: hybrid-bm25-weighted-025, overrides: {version_mode: auto}}
+    - {name: recommended-cross-encoder, parent: recommended, overrides: {reranker: cross-encoder}}
+    - {name: dense-hash, parent: dense-bge-small, overrides: {dense_model: hash-v1}}
+    - {name: weighted-reference, parent: default, overrides: {fusion: weighted}, dev_only: true}
+    - {name: weighted-025, parent: weighted-reference, overrides: {alpha: 0.25}, tune: alpha}
+    - {name: weighted-050, parent: weighted-reference, overrides: {alpha: 0.5}, tune: alpha}
+    - {name: weighted-075, parent: weighted-reference, overrides: {alpha: 0.75}, tune: alpha}
+    - {name: parent-off, parent: default, overrides: {parent_expansion: false}}
+    - {name: candidates-60, parent: default, overrides: {candidate_k: 60}}
+    - {name: scope-explicit, parent: default, overrides: {version_mode: explicit}}
+    - {name: scope-auto, parent: default, overrides: {version_mode: auto}}
+    - name: metadata-prefixed
+      parent: default
+      overrides: {metadata_prefixed: true}
+      flag: metadata-prefix
+    - {name: bge-base, parent: default, overrides: {dense_model: bge-base}, flag: bge-base}
+    - {name: chunks-120, parent: default, overrides: {chunk_tokens: 120}, flag: chunk-size}
+    - {name: chunks-440, parent: default, overrides: {chunk_tokens: 440}, flag: chunk-size}

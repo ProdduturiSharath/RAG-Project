@@ -35,6 +35,7 @@ def build_application(settings: Settings | None = None) -> RagApplication:
         else SentenceTransformerEncoder(
             settings.dense_model,
             metadata_prefixed=settings.metadata_prefixed_embeddings,
+            query_instruction=settings.query_instruction,
         )
     )
     sparse_encoder = Bm25SparseEncoder()

@@ -14,6 +14,7 @@ from rag_service.retrieval import (
     resolve_scope,
 )
 from rag_service.retrieval.encoders import tokenize
+from rag_service.retrieval.postgres import filter_sparse_terms, sparse_query_texts
 from rag_service.retrieval.service import HybridRetriever
 
 
@@ -69,7 +70,7 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(set(index.traces), {result.trace_id})
 
-    async def test_auto_scope_reports_ambiguity_instead_of_mixing_versions(self) -> None:
+    async def test_auto_scope_reports_ambiguity_but_falls_back_to_unscoped_search(self) -> None:
         index, dense, sparse = self._index()
         retriever = HybridRetriever(
             index, dense, sparse, config=RetrievalConfig(version_mode="auto")
@@ -77,14 +78,16 @@ class RetrievalPipelineTests(unittest.IsolatedAsyncioTestCase):
 
         result = await retriever.retrieve_detailed(
             "What is the sender limit?",
-            top_k=1,
+            top_k=2,
             candidate_k=2,
             filters=RetrievalFilters(groups=("operations",)),
         )
 
-        self.assertEqual(result.matches, ())
+        self.assertEqual({match.chunk.version for match in result.matches}, {"pg16", "pg17"})
         self.assertEqual(result.scope.status, "ambiguous")
         self.assertEqual(set(result.scope.versions), {"pg16", "pg17"})
+        self.assertIsNone(result.scope.filters.product_version)
+        self.assertIsNone(result.scope.filters.scopes)
 
     def test_sync_compatibility_path_uses_the_traced_pipeline(self) -> None:
         index, dense, sparse = self._index()
@@ -141,6 +144,27 @@ class RetrievalPrimitiveTests(unittest.TestCase):
 
         self.assertEqual(results[0].chunk.text, chunks[0].text)
         self.assertGreater(results[0].sparse_score, results[1].sparse_score)
+
+    def test_postgres_sparse_queries_or_terms_and_normalize_identifiers(self) -> None:
+        plain, identifiers = sparse_query_texts("What does max_wal-senders do?")
+
+        self.assertEqual(plain, "'max_wal-senders'")
+        self.assertEqual(identifiers, "'max' | 'wal' | 'senders'")
+
+    def test_postgres_sparse_term_filter_drops_common_and_version_terms(self) -> None:
+        plain, identifiers = filter_sparse_terms(
+            "What is PostgreSQL 17 default value for vacuum_buffer_usage_limit?",
+            {"default": 8, "value": 7, "vacuum": 1, "buffer": 2, "usage": 1,
+             "limit": 2, "pg": 40, "subscription": 20, "vacuum_buffer_usage_limit": 1},
+            document_count=100,
+        )
+
+        self.assertNotIn("default", plain)
+        self.assertNotIn("postgresql", plain)
+        self.assertNotIn("17", plain)
+        self.assertIn("'vacuum_buffer_usage_limit'", plain)
+        self.assertIn("'vacuum'", identifiers)
+        self.assertNotIn("'pg'", identifiers)
 
     def test_auto_scope_selects_one_explicit_version_mention(self) -> None:
         result = resolve_scope(

@@ -1,0 +1,147 @@
+# Phase 4 evaluation
+
+Run `bash scripts/run_phase4.sh` from a checkout with the host `.venv` and the
+repaired Phase 3 corpus in `evidence_rag_eval` at `127.0.0.1:5432`.
+The runner does not load `.env`. Set `RAG_EVAL_DATABASE_URL` in the terminal if
+the default local `postgres:postgres` credentials differ. Results are resumable,
+fingerprinted, and written under `results/`; logs append to `results/phase4.log`.
+
+## Official BGE finding (checked 2026-10-10)
+
+The [BAAI model card](https://huggingface.co/BAAI/bge-small-en-v1.5)
+([raw card](https://huggingface.co/BAAI/bge-small-en-v1.5/raw/main/README.md))
+recommends `Represent this sentence for searching relevant passages: `
+(including the trailing space) for short-query/long-passage retrieval.
+It says v1.5 also works without instructions, usually with slight degradation,
+and recommends choosing the setting using task performance. Passages receive
+no query instruction. `SentenceTransformerEncoder.embed_query` already added
+this exact prefix unconditionally before Phase 4. It now has a boolean
+`query_instruction` switch (application environment: `RAG_QUERY_INSTRUCTION`),
+default **on**, with both hybrid and pure-dense on/off comparisons.
+
+## Protocol
+
+- Gold is the frozen 212-row dev/test artifact. No blind question file is opened.
+  Preflight checks schema, accepted review status, evidence/source validation,
+  reproducibility from committed review inputs, and 32,719 active corpus chunks
+  (10,777 / 10,912 / 11,030 for pg-15 / pg-16 / pg-17), including BGE embeddings.
+  The schema's old unconditional ban on validated model drafts is aligned with
+  the existing final-gold validator's explicitly accepted `model_audit` exception.
+- A hit requires a whole evidence quote after whitespace normalization,
+  case preserved, and a valid version: `gold_versions` for independent rows,
+  `target_version` for version-specific rows, and either recorded evidence
+  version for unchanged controls. Lineage is not an additional hit restriction.
+- Recall@k is the fraction of distinct evidence quotes covered, averaged over
+  questions. Equivalent text repeated across `gold_versions` is one evidence
+  unit, not several relevant hits. Multi-hop also reports all-quotes@k and micro
+  quote coverage. MRR uses the first hit in the returned list (30 by default,
+  60 in that arm). nDCG@10 uses deduplicated evidence units and a full-corpus
+  ideal. The ideal uses authorized, version-valid chunks **before version
+  scoping**.
+  Questions whose spans fit no indexed chunk score zero and remain in denominators.
+- Version confusion@k means any same-lineage wrong version within k ranked
+  above the first correct hit. A missing correct hit has rank infinity.
+  Version-specific rows also report correct-version R@1 and the share whose
+  top-1 result belongs to a different lineage entirely.
+  False exclusion on controls means scoping removes **all** otherwise accessible
+  correct chunks; its denominator is controls with at least one such chunk.
+- Unanswerable/version-unavailable rows have only top-1 score distributions and
+  missing-result counts; no abstention decisions or thresholds are fitted.
+- ACL questions use the requester's principal and groups from `data/acl_demo.yaml`.
+  Isolated evaluation views partition restricted sections into policy-bearing
+  virtual documents, letting the existing SQL ACL predicate run before limits.
+  An independent audit checks every candidate stage and expanded parent, and any
+  leakage aborts the run. Other question types use the public manual corpus.
+- Stage latency is measured by `HybridRetriever` with models warmed before timing;
+  total wall time also includes orchestration. Disabled stages are identified.
+  Cached results retain their original measurements; initialization is separate.
+- Report dev and test separately, type, paraphrased flag, crossed type/flag, and
+  review method (including an explicit empty owner-written group). Bootstrap 95%
+  percentile intervals use 2,000 draws, seed 42, resampling whole `lineage_key`
+  clusters. Paired differences use the same question IDs and lineage draws;
+  intervals containing zero are marked **within noise**, not equivalence.
+
+## Systems and host options
+
+`configs/phase-4-evaluation.yaml` is a validated one-setting-at-a-time graph.
+The default matches application defaults: BGE-small, instruction on, Postgres
+FTS + dense RRF, cross-encoder top-30, parent expansion, no version scope.
+Pure retrieval baselines descend through named no-rerank/no-expansion controls;
+the parent of every arm is reported. Weighted alpha (0.25/0.5/0.75) and the best
+two systems are selected by **dev nDCG@10**, tie-broken by system name, before
+test evaluation. Unselected alphas remain dev-only. Failures are the worst
+test failures of those two dev-selected systems, up to 30 actual failures each.
+
+Optional flags, all off by default:
+
+- `--metadata-prefix`: re-embed document/version/section-prefixed inputs under
+  their own `::metadata-v1` embedder ID and input-text hash (including metadata).
+- `--bge-base`: locally embed the same corpus using BGE-base.
+- `--chunk-size`: re-chunk saved complete sections at 120 and 440 tokens with
+  the existing chunker, fixed 35-token overlap; re-embed new chunk inputs.
+- `--scifact`: run the SciFact check **last**, using the same Postgres dense
+  stage and query encoder, no reranker or expansion, title + abstract documents.
+- `--refresh`: recompute query results; corpus/embedding caches remain reusable.
+  Snapshot keys use corpus/chunk/policy identity rather than source-code hashes,
+  and compatible prior code-hash snapshots are adopted by exact chunk/version/
+  restriction identity, so a harness-only fix does not re-embed metadata-prefixed
+  or optional arms.
+- Every normal run first smoke-tests each selected configured arm on three gold
+  questions through the real Postgres/model path. `--smoke` runs only that gate;
+  it never reads result artifacts for the arms and prints PASS/FAIL per arm.
+
+The sparse PostgreSQL path uses separate sanitized OR queries for prose and
+punctuation-normalized identifiers. Query-only filters drop `postgresql`, version
+numbers, and terms appearing in more than 5% of active chunks; identifier terms
+remain eligible, and document frequencies are cached per snapshot. The old
+`plainto_tsquery` AND behavior required every question word to occur in one chunk
+and could silently return no rows. Preflight prints filtered queries, match count,
+top-three IDs with scores, and gold-evidence ranks for five gold questions. The
+run aborts if an arm has zero recall on every scored question. In-process BM25 is
+available both as its original sparse-only arm and
+as `hybrid-bm25-rrf`/`hybrid-bm25-weighted`; the weighted BM25 alpha is selected
+on DEV only. `hybrid-postgres-rrf` makes the fixed PostgreSQL sparse path an
+explicit hybrid comparison.
+
+The closeout arms stack the frozen DEV-selected `hybrid-bm25-weighted-025`
+settings with automatic parsed-version scope, parent expansion off, and no
+reranker (`recommended`); `recommended-cross-encoder` changes only the
+reranker. Both run on DEV and TEST. A completed run generates
+`docs/phase4_findings.md` from its JSON artifacts.
+
+All model inference is local on the host. The host may download missing model
+weights; there are no model API calls. Existing ingestion and public tables are
+preserved; content-addressed `phase4_*` schemas hold evaluation snapshots/caches.
+
+The host run also writes `results/phase4_smoke.json`, a 40-question dev cache.
+Commit that measured artifact with the results to activate the offline CI replay
+gate. Before the first host run the cache-dependent CI step is skipped; no
+synthetic retrieval outcomes are substituted for measured ones.
+
+The closeout host artifacts exceeded the 25 MB commit limit (930.03 MiB
+including the 50 per-arm JSON result files). This closeout commits
+`docs/phase4_findings.md`, `results/phase4_table.md`,
+`results/phase4_comparisons.json`, and `results/failures_*.md`; per-arm JSON,
+preflight/selection/smoke caches, logs, and embedding caches remain local.
+
+## SciFact reference
+
+The [official BEIR dataset list](https://github.com/beir-cellar/beir#beers-available-datasets)
+links the [SciFact archive](https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip)
+with MD5 `5f7d1de60b170fc8027bb7898e2efca1`, 300 test queries and about 5K documents.
+The BAAI card's `model-index` entry for **MTEB SciFact**, test split, reports
+`ndcg_at_10: 71.275`, i.e. **0.71275** on a 0–1 scale. The optional check prints
+the measured number beside this published reference, with both URLs. It is a
+sanity comparison, not a claim of identical MTEB software/model revisions.
+
+No retrieval measurements have been produced in the sandbox. Host execution is
+required before choosing a winning system or making a quality claim.
+
+## Known limits
+
+- Questions were model-written from passages and therefore favor lexical overlap;
+  this is not a random user-query distribution.
+- Explicit-scope version confusion is zero by construction because the SQL
+  candidate set already contains only the requested version.
+- Small cohorts make intervals wide: the ACL allowed/scored cohort has 3 rows,
+  and controls have 8 dev and 17 test rows.

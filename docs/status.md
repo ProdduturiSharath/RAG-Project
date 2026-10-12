@@ -623,4 +623,13 @@ table representation, including intact title/path and separate caption, is in
 [`dataset_card.md`](dataset_card.md).
 
 Phase 4 reports metrics on all gold rows AND separately on human and
-owner_written rows. PR #4 remains open and unmerged; Phase 4 has not started.
+owner_written rows. The Phase 4 closeout host evaluation completed on
+2026-10-11.
+
+## Phase 4 implementation — 2026-10-10
+- `phase-4-evaluation` is based on merged `main`; both human-review inputs are committed and all 212 gold rows rebuild byte-for-byte.
+- Phase 4 closeout adds the DEV-stacked `recommended` and cross-encoder variant, paired comparisons, and JSON-driven `docs/phase4_findings.md` generation; Phase 5 has not started.
+- Host Phase 4 ran with `bash scripts/run_phase4.sh --metadata-prefix --scifact`; closeout findings and aggregate reports are ready, while per-arm JSON artifacts remain local because they exceed the commit-size limit.
+- `docs/phase4_findings.md` and `results/phase4_table.md` are committed; the approximately 930 MB per-arm JSON artifacts stay local. Findings regenerate with `bash scripts/run_phase4.sh --metadata-prefix --scifact`.
+- `results_run1_backup/` was removed; Phase 5 has not started.
+- Future sessions reuse the project-local GitHub login with `GH_CONFIG_DIR="$PWD/.gh-config" .tools/gh/gh auth status`; Git uses the ignored `.tools/git-credential-gh` wrapper configured locally.

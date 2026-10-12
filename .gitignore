@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv-sandbox/
 venv/
 .env
 .env.*
@@ -19,6 +20,11 @@ data/processed/
 logs/
 .cache/
 results/*.tmp
+results/phase4.log
+results/cache/
+results_run1_backup/
+.tools/
+.gh-config/
 
 # Local agent state
 __agent__/
