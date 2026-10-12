@@ -23,6 +23,8 @@ results/*.tmp
 results/phase4.log
 results/cache/
 results_run1_backup/
+.tools/
+.gh-config/
 
 # Local agent state
 __agent__/

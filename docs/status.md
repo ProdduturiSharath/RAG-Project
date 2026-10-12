@@ -631,3 +631,4 @@ evaluation is pending.
 - Phase 4 closeout adds the DEV-stacked `recommended` and cross-encoder variant, paired comparisons, and JSON-driven `docs/phase4_findings.md` generation; Phase 5 has not started.
 - Host Phase 4 ran with `bash scripts/run_phase4.sh --metadata-prefix --scifact`; closeout findings and aggregate reports are ready, while per-arm JSON artifacts remain local because they exceed the commit-size limit.
 - `results_run1_backup/` was removed; Phase 5 has not started.
+- Future sessions reuse the project-local GitHub login with `GH_CONFIG_DIR="$PWD/.gh-config" .tools/gh/gh auth status`; Git uses the ignored `.tools/git-credential-gh` wrapper configured locally.
