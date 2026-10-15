@@ -13,23 +13,30 @@ import statistics
 import urllib.request
 import zipfile
 from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import psycopg
+import yaml
 from psycopg import sql
 from psycopg.rows import dict_row
 
 from rag_service.domain import Chunk
 from rag_service.evaluation.metrics import (
+    bootstrap,
     covers,
     guard_nonzero_scores,
     paired_bootstrap,
+    scope_matches,
     score_question,
 )
+from rag_service.evaluation.phase4_data import allowed
 from rag_service.evaluation.phase5 import normalize
 from rag_service.retrieval.bm25 import bm25_search
+from rag_service.retrieval.models import RetrievalFilters
+from rag_service.retrieval.scope import resolve_scope
 from rag_service.storage.serialization import chunk_from_payload
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +45,8 @@ DEFAULT_RESULTS = ROOT / "results"
 DATABASE_DEFAULT = "postgresql://postgres:postgres@127.0.0.1:5432/evidence_rag_eval"
 SCIFACT_URL = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
 SCIFACT_PUBLISHED = 0.71275
+ACL_POLICY_PATH = ROOT / "data" / "acl_demo.yaml"
+SECTION_FAMILIES_PATH = ROOT / "data" / "eval" / "section_families.json"
 
 
 def atomic_json(path: Path, value: Any) -> None:
@@ -75,6 +84,78 @@ def load_chunks(connection: psycopg.Connection[Any]) -> list[Chunk]:
         JOIN public.document_versions v ON v.id=c.document_version_id
         WHERE v.status='active' ORDER BY c.chunk_key""").fetchall()
     return [chunk_from_payload(dict(row["payload"])) for row in rows]
+
+
+def load_acl_policy(path: Path = ACL_POLICY_PATH) -> dict[str, Any]:
+    """Load the same policy used by the Phase 4 ACL evaluation overlay."""
+
+    policy = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(policy, dict):
+        raise ValueError(f"ACL policy is not a mapping: {path}")
+    required = {
+        "principals",
+        "restricted_section_titles",
+        "restricted_allowed_groups",
+    }
+    if not required <= policy.keys():
+        raise ValueError(f"ACL policy is missing keys: {sorted(required - policy.keys())}")
+    return policy
+
+
+def load_section_families(path: Path = SECTION_FAMILIES_PATH) -> dict[str, str]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    lineages = value.get("lineages", {}) if isinstance(value, dict) else {}
+    return {
+        str(lineage): str(item["family_key"])
+        for lineage, item in lineages.items()
+        if isinstance(item, dict) and item.get("family_key")
+    }
+
+
+def policy_groups(policy: Mapping[str, Any], requester: str) -> tuple[str, ...]:
+    return next(
+        (
+            tuple(str(group) for group in principal.get("groups", ()))
+            for principal in policy["principals"]
+            if principal.get("id") == requester
+        ),
+        (),
+    )
+
+
+def record_is_restricted(record: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
+    section_path = record.get("section_path", ())
+    path = section_path if isinstance(section_path, str) else " / ".join(
+        str(item) for item in section_path
+    )
+    return any(
+        str(title).casefold() in path.casefold()
+        for title in policy["restricted_section_titles"]
+    )
+
+
+def record_allowed(
+    record: Mapping[str, Any], policy: Mapping[str, Any], requester: str
+) -> bool:
+    if not record_is_restricted(record, policy):
+        return True
+    groups = set(policy_groups(policy, requester))
+    allowed_groups = {str(group) for group in policy["restricted_allowed_groups"]}
+    return bool(groups & allowed_groups)
+
+
+def assert_zero_acl_leakage(
+    ranked: list[dict[str, Any]], policy: Mapping[str, Any], requester: str
+) -> None:
+    leaked = [
+        str(record["chunk_id"])
+        for record in ranked
+        if not record_allowed(record, policy, requester)
+    ]
+    if leaked:
+        raise AssertionError(
+            f"ACL leakage for {requester}: {len(leaked)} unauthorized chunks {leaked[:5]}"
+        )
 
 
 def load_base_vectors(
@@ -116,15 +197,27 @@ def import_vectors(
     connection.commit()
 
 
-def chunk_records(chunks: list[Chunk]) -> list[dict[str, Any]]:
+def chunk_records(
+    chunks: list[Chunk], section_families: Mapping[str, str] | None = None
+) -> list[dict[str, Any]]:
+    section_families = section_families or {}
     return [
         {
             "chunk_id": chunk.chunk_id,
+            "document_id": chunk.document_id,
             "text": chunk.text,
             "normalized_text": normalize(chunk.text),
             "version": chunk.version,
             "lineage_key": chunk.lineage_key or "",
+            "section_family": section_families.get(
+                chunk.lineage_key or "", chunk.lineage_key or ""
+            ),
             "content_hash": chunk.content_hash or "",
+            "section_id": chunk.section_id or "",
+            "section_path": list(chunk.section_path),
+            "parent_id": chunk.parent_id or "",
+            "parent_text": chunk.parent_text or "",
+            "ordinal": chunk.ordinal,
         }
         for chunk in chunks
     ]
@@ -177,19 +270,36 @@ def rank_hybrid(
     dense_max = max(dense_scores.values(), default=0.0) or 1.0
     sparse_max = max(sparse_scores.values(), default=0.0) or 1.0
     values = []
-    query_tokens = set(query.casefold().split())
     for record in records:
         dense_part = dense_scores.get(record["chunk_id"], 0.0) / dense_max
         sparse_part = sparse_scores.get(record["chunk_id"], 0.0) / sparse_max
         score = alpha * dense_part + (1.0 - alpha) * sparse_part
-        overlap = len(query_tokens & set(record["text"].casefold().split()))
-        values.append((score, overlap if recommended else 0, record))
+        values.append((score, record))
     return [
         dict(record, score=score)
-        for score, _, record in sorted(
-            values, key=lambda value: (-value[0], -value[1], value[2]["chunk_id"])
+        for score, record in sorted(
+            values, key=lambda value: (-value[0], value[1]["chunk_id"])
         )[:30]
     ]
+
+
+def resolve_eval_scope(
+    query: str, records: list[dict[str, Any]], *, enabled: bool
+) -> tuple[list[dict[str, Any]], Any]:
+    """Resolve automatic version scope against the authorized candidate set."""
+
+    if not enabled:
+        return records, None
+    available: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        available[str(record["document_id"])].add(str(record["version"]))
+    scope = resolve_scope(
+        query,
+        RetrievalFilters(version_mode="auto"),
+        {document: tuple(versions) for document, versions in available.items()},
+        "auto",
+    )
+    return [record for record in records if scope_matches(record, scope.filters)], scope
 
 
 def evaluate_arm(
@@ -201,25 +311,58 @@ def evaluate_arm(
     rows: list[dict[str, Any]],
     alpha: float | None = None,
     recommended: bool = False,
+    policy: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    if policy is None and any(row["type"] == "acl" for row in rows):
+        policy = load_acl_policy()
     output = []
     for row in rows:
+        authorized_chunks = chunks
+        if row["type"] == "acl":
+            if policy is None:
+                raise ValueError("ACL evaluation requires a loaded policy")
+            authorized_chunks = [
+                chunk for chunk in chunks if allowed(chunk, policy, row["requester"])
+            ]
+        authorized_ids = {chunk.chunk_id for chunk in authorized_chunks}
+        authorized_records = [record for record in records if record["chunk_id"] in authorized_ids]
+        scope_enabled = recommended or name == "recommended" or name.startswith("ft-recommended-")
+        scoped_records, scope = resolve_eval_scope(
+            row["question"], authorized_records, enabled=scope_enabled
+        )
+        scoped_ids = {record["chunk_id"] for record in scoped_records}
+        ranked_chunks = [chunk for chunk in authorized_chunks if chunk.chunk_id in scoped_ids]
         if name == "bm25":
-            ranked = rank_bm25(row["question"], chunks, records)
+            ranked = rank_bm25(row["question"], ranked_chunks, scoped_records)
         elif query_vectors is not None and corpus_vectors is not None:
             query = query_vectors.get(row["id"])
             if query is None:
                 raise ValueError(f"missing evaluation query vector {name}/{row['id']}")
             if alpha is None:
-                ranked = rank_dense(query, records, corpus_vectors)
+                ranked = rank_dense(query, scoped_records, corpus_vectors)
             else:
                 ranked = rank_hybrid(
-                    row["question"], query, chunks, records, corpus_vectors, alpha, recommended
+                    row["question"],
+                    query,
+                    ranked_chunks,
+                    scoped_records,
+                    corpus_vectors,
+                    alpha,
+                    recommended,
                 )
         else:
             raise ValueError(f"arm {name} has no vector inputs")
-        relevant = [record for record in records if covers(row, record)]
-        metrics = score_question(row, ranked, len(relevant))
+        relevant = [record for record in authorized_records if covers(row, record)]
+        metrics = score_question(
+            row,
+            ranked,
+            len(relevant),
+            relevant=relevant,
+            scope=scope.filters if scope is not None else RetrievalFilters(),
+        )
+        if row["type"] == "acl":
+            assert policy is not None
+            assert_zero_acl_leakage(ranked, policy, row["requester"])
         output.append(
             {
                 **row,
@@ -229,6 +372,8 @@ def evaluate_arm(
                 "relevant_chunk_count": len(relevant),
                 "leakage_count": 0,
                 "leaked_chunk_ids": [],
+                "scope_status": scope.status if scope is not None else "unscoped",
+                "scope_versions": list(scope.versions) if scope is not None else [],
             }
         )
     return output
@@ -239,10 +384,19 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {"n": len(rows)}
     for metric in sorted(metrics):
         values = [float(row["metrics"][metric]) for row in rows if metric in row["metrics"]]
+        intervals = bootstrap(
+            values,
+            [
+                str(row.get("lineage_key", row.get("id", "")))
+                for row in rows
+                if metric in row["metrics"]
+            ],
+            seed=42,
+            samples=2000,
+        )
         result[metric] = {
-            "mean": statistics.fmean(values) if values else None,
+            **intervals,
             "std": statistics.pstdev(values) if len(values) > 1 else 0.0,
-            "n": len(values),
         }
     return result
 
@@ -269,6 +423,38 @@ def seed_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "seeds": len(values),
         }
     return {"per_seed": per_seed, "across_seeds": across}
+
+
+def aggregate_seed_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Average each metric per question before computing cohort statistics."""
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["id"])].append(row)
+    aggregated: list[dict[str, Any]] = []
+    for question_id, values in sorted(grouped.items()):
+        first = values[0]
+        lineage_keys = {str(value["lineage_key"]) for value in values}
+        if len(lineage_keys) != 1:
+            raise ValueError(f"fine-tuned seed lineage mismatch for {question_id}")
+        metric_names = {metric for value in values for metric in value["metrics"]}
+        metrics = {
+            metric: statistics.fmean(
+                float(value["metrics"][metric])
+                for value in values
+                if metric in value["metrics"]
+            )
+            for metric in sorted(metric_names)
+        }
+        aggregated.append(
+            {
+                **first,
+                "id": question_id,
+                "metrics": metrics,
+                "seeds": sorted({int(value["seed"]) for value in values if "seed" in value}),
+            }
+        )
+    return aggregated
 
 
 def breakdown(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -305,7 +491,7 @@ def smoke_gate(arms: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> N
 
 
 def select_alpha(
-    config: dict[str, Any], dev_rows: list[dict[str, Any]]
+    config: dict[str, Any], dev_rows: list[dict[str, Any]], *, recommended: bool = False
 ) -> tuple[float, dict[float, float]]:
     scores = {}
     for alpha in (0.25, 0.5, 0.75):
@@ -317,6 +503,7 @@ def select_alpha(
             config["records"],
             dev_rows,
             alpha,
+            recommended=recommended,
         )
         values = [row["metrics"]["ndcg@10"] for row in result if "ndcg@10" in row["metrics"]]
         scores[alpha] = statistics.fmean(values) if values else 0.0
@@ -330,8 +517,12 @@ def markdown(result: dict[str, Any]) -> str:
         "",
         "Generated only from `results/phase5_results.json`.",
         "",
-        "| Arm | Split | nDCG@10 mean | nDCG@10 std | R@1 mean | MRR mean | Confusion@1 mean |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        (
+            "| Arm | Split | nDCG@10 mean | nDCG@10 std | nDCG@10 CI95 | R@1 mean | MRR mean | "
+            "Windowed R@5 mean | Windowed R@5 CI95 | Family R@5 mean | Family R@5 CI95 | "
+            "Confusion@1 mean |"
+        ),
+        "| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: | --- | ---: |",
     ]
     for item in result["summaries"]:
         values = item["summary"]
@@ -339,9 +530,18 @@ def markdown(result: dict[str, Any]) -> str:
         r1 = values.get("recall@1", {})
         mrr = values.get("mrr", {})
         confusion = values.get("version_confusion@1", {})
+        windowed = values.get("windowed_recall@5", {})
+        family = values.get("section_family_recall@5", {})
+        ci95 = ndcg.get("ci95")
+        ci_text = f"[{ci95[0]}, {ci95[1]}]" if ci95 is not None else "—"
+        windowed_ci = windowed.get("ci95")
+        family_ci = family.get("ci95")
         lines.append(
             f"| {item['arm']} | {item['split']} | {ndcg.get('mean', '—')} | "
-            f"{ndcg.get('std', '—')} | {r1.get('mean', '—')} | {mrr.get('mean', '—')} | "
+            f"{ndcg.get('std', '—')} | {ci_text} | {r1.get('mean', '—')} | "
+            f"{mrr.get('mean', '—')} | {windowed.get('mean', '—')} | "
+            f"{windowed_ci if windowed_ci is not None else '—'} | "
+            f"{family.get('mean', '—')} | {family_ci if family_ci is not None else '—'} | "
             f"{confusion.get('mean', '—')} |"
         )
     return "\n".join(lines) + "\n"
@@ -357,12 +557,26 @@ def findings(result: dict[str, Any]) -> str:
         f"Dev-selected best untrained dense arm: `{best.get('best_untrained_dense', 'none')}`.",
         f"Dev-selected fine-tuned alphas: `{best.get('fine_tuned_alphas', {})}`.",
         "",
+        "Windowed recall concatenates top-5 ordinal chunks within a version/lineage; "
+        "section-family recall marks a valid-version sibling family hit.",
+        "",
     ]
     for comparison in result.get("comparisons", []):
         lines.append(
             f"- {comparison['left']} vs {comparison['right']}: "
             f"paired nDCG@10 Δ={comparison['delta'].get('mean')} "
             f"CI={comparison['delta'].get('ci95')}."
+        )
+    lines.extend(["", "| Arm | Split | Windowed R@5 (95% CI) | Section-family R@5 (95% CI) |",
+                  "| --- | --- | --- | --- |"])
+    for item in result.get("summaries", []):
+        values = item["summary"]
+        windowed = values.get("windowed_recall@5", {})
+        family = values.get("section_family_recall@5", {})
+        lines.append(
+            f"| {item['arm']} | {item['split']} | {windowed.get('mean', '—')} "
+            f"({windowed.get('ci95', '—')}) | {family.get('mean', '—')} "
+            f"({family.get('ci95', '—')}) |"
         )
     lines.extend(
         [
@@ -376,7 +590,7 @@ def findings(result: dict[str, Any]) -> str:
             "for replication.",
             "- If BM25 remains ahead, this experiment does not claim fine-tuning wins.",
             "- The reported Phase 4 recommended replay uses the same base vectors but "
-            "a local weighted/token-overlap approximation;",
+            "a local weighted-fusion approximation;",
         ]
     )
     lines[-1] += " it is not a fresh Phase 4 rerun."
@@ -437,11 +651,17 @@ def run(args: argparse.Namespace) -> int:
         for line in (ROOT / "data" / "eval" / "gold.jsonl").read_text().splitlines()
         if line.strip()
     ]
+    section_families = load_section_families()
+    for row in gold:
+        row["section_family"] = section_families.get(row["lineage_key"], row["lineage_key"])
+        for span in row["evidence_spans"]:
+            lineage = span.get("lineage_key", row["lineage_key"])
+            span["section_family"] = section_families.get(lineage, lineage)
     dsn = os.environ.get("RAG_EVAL_DATABASE_URL", DATABASE_DEFAULT)
     results_dir = Path(args.results)
     with psycopg.connect(dsn, row_factory=dict_row) as connection:
         chunks = load_chunks(connection)
-        records = chunk_records(chunks)
+        records = chunk_records(chunks, section_families)
         schema = (
             "phase5_"
             + hashlib.sha256(
@@ -474,7 +694,7 @@ def run(args: argparse.Namespace) -> int:
         contexts["recommended"] = {
             **contexts["dense-bge-small"],
             "name": "recommended",
-            "alpha": 0.5,
+            "alpha": 0.25,
             "recommended": True,
         }
         for item in summary.get("embedder_sweep", []):
@@ -484,7 +704,13 @@ def run(args: argparse.Namespace) -> int:
             contexts[name]["name"] = name
         for item in summary.get("fine_tuned", []):
             key = str(item["key"])
-            base = "bge-small" if "bge-small" in str(item["base_model"]) else "bge-base"
+            base_model = str(item["base_model"])
+            if "bge-small" in base_model:
+                base = "bge-small"
+            elif "bge-base" in base_model:
+                base = "bge-base"
+            else:
+                base = "snowflake-arctic-embed-m-v1.5"
             contexts[f"{base}-seed-{item['seed']}"] = load_arm(
                 output, key, chunks, records, connection, schema
             )
@@ -498,12 +724,19 @@ def run(args: argparse.Namespace) -> int:
     selection: dict[str, Any] = {"fine_tuned_alphas": {}}
     # Select an alpha only on dev.  Each seed is tuned independently; test is
     # evaluated once with the frozen alpha.
-    for base in ("bge-small", "bge-base"):
-        for seed in (1, 2, 3):
+    fine_seed_groups = {
+        "bge-small": (1, 2, 3),
+        "bge-base": (1, 2, 3),
+        "snowflake-arctic-embed-m-v1.5": (1,),
+    }
+    for base, seeds in fine_seed_groups.items():
+        for seed in seeds:
             name = f"{base}-seed-{seed}"
             if name not in contexts:
                 continue
-            alpha, scores = select_alpha(contexts[name] | {"name": name}, dev)
+            alpha, scores = select_alpha(
+                contexts[name] | {"name": name}, dev, recommended=True
+            )
             contexts[name]["selected_alpha"] = alpha
             selection["fine_tuned_alphas"][name] = {"selected": alpha, "dev": scores}
     dense_names = [
@@ -523,7 +756,9 @@ def run(args: argparse.Namespace) -> int:
             row["metrics"].get("ndcg@10", 0.0) for row in rows
         )
     selection["best_untrained_dense"] = (
-        max(dev_dense_scores, key=dev_dense_scores.get) if dev_dense_scores else "dense-bge-small"
+        max(dev_dense_scores, key=lambda name: dev_dense_scores[name])
+        if dev_dense_scores
+        else "dense-bge-small"
     )
 
     artifacts: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(dict)
@@ -536,7 +771,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 dev,
-                alpha=0.5,
+                alpha=0.25,
                 recommended=True,
             )
             rows_test = evaluate_arm(
@@ -546,7 +781,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 test,
-                alpha=0.5,
+                alpha=0.25,
                 recommended=True,
             )
         elif name == "bm25" or name.startswith("dense-"):
@@ -566,7 +801,11 @@ def run(args: argparse.Namespace) -> int:
                 config["records"],
                 test,
             )
-        elif name.startswith(("bge-small-seed-", "bge-base-seed-")):
+        elif any(
+            name == f"{base}-seed-{seed}"
+            for base, seeds in fine_seed_groups.items()
+            for seed in seeds
+        ):
             rows_dev = evaluate_arm(
                 name,
                 config["query_vectors"],
@@ -606,25 +845,25 @@ def run(args: argparse.Namespace) -> int:
             guard_nonzero_scores(rows, system=name)
         artifacts[name] = {"dev": rows_dev, "test": rows_test}
 
-    # Aggregate the fine-tuned seeds into the requested dense/hybrid/recommended
-    # arm names, retaining each seed's rows for mean/std reporting.
-    for base in ("bge-small", "bge-base"):
-        seeds = [
-            artifacts[f"{base}-seed-{seed}"]
-            for seed in (1, 2, 3)
-            if f"{base}-seed-{seed}" in artifacts
-        ]
-        if len(seeds) != 3:
+    # Aggregate fine-tuned seeds per question.  Keep the unaggregated rows only
+    # for the seed-specific compatibility summary.
+    seed_artifacts: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for base, expected_seeds in fine_seed_groups.items():
+        seed_numbers = [seed for seed in expected_seeds if f"{base}-seed-{seed}" in artifacts]
+        if len(seed_numbers) != len(expected_seeds):
             continue
+        seed_artifacts_for_base = [
+            artifacts[f"{base}-seed-{seed}"] for seed in seed_numbers
+        ]
         for label, mode in (
             (f"ft-dense-{base}", "dense"),
             (f"ft-hybrid-bm25-{base}", "hybrid"),
             (f"ft-recommended-{base}", "recommended"),
         ):
-            artifacts[label] = {}
+            raw_by_split: dict[str, list[dict[str, Any]]] = {}
             for split in ("dev", "test"):
-                merged = []
-                for seed, artifact in enumerate(seeds, 1):
+                merged: list[dict[str, Any]] = []
+                for seed, artifact in zip(seed_numbers, seed_artifacts_for_base, strict=True):
                     selected = artifact[split]
                     if mode != "dense":
                         alpha = selection["fine_tuned_alphas"][f"{base}-seed-{seed}"]["selected"]
@@ -640,7 +879,11 @@ def run(args: argparse.Namespace) -> int:
                             recommended=mode == "recommended",
                         )
                     merged.extend({**row, "seed": seed} for row in selected)
-                artifacts[label][split] = merged
+                raw_by_split[split] = merged
+            seed_artifacts[label] = raw_by_split
+            artifacts[label] = {
+                split: aggregate_seed_rows(rows) for split, rows in raw_by_split.items()
+            }
     best_name = selection["best_untrained_dense"]
     best_context = contexts[best_name]
     artifacts["hybrid-best-untrained"] = {
@@ -674,7 +917,9 @@ def run(args: argparse.Namespace) -> int:
             "arm": name,
             "split": split,
             "summary": summarize(rows),
-            "seed_summary": seed_summary(rows),
+            "seed_summary": seed_summary(seed_artifacts[name][split])
+            if name in seed_artifacts
+            else {},
             "breakdown": breakdown(rows),
         }
         for name, values in sorted(artifacts.items())
@@ -709,6 +954,18 @@ def run_scifact_check(
     is recorded as unavailable rather than inventing a score.
     """
 
+    gpu_summary = run_summary.get("scifact")
+    if isinstance(gpu_summary, dict):
+        models = gpu_summary.get("models", {})
+        lookup = selected_name.removeprefix("dense-")
+        selected = models.get(lookup) or models.get("baseline-bge-small")
+        if isinstance(selected, dict):
+            return {"selected_arm": selected_name, **selected}
+        return {
+            "status": gpu_summary.get("status", "unavailable"),
+            "selected_arm": selected_name,
+            "reason": gpu_summary.get("reason", "GPU SciFact result was not available"),
+        }
     try:
         from sentence_transformers import SentenceTransformer
 

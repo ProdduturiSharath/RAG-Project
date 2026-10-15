@@ -15,6 +15,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from rag_service.ingestion.chunking import content_hash_for_chunk
+
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\b")
 STYLE_NAMES = ("identifier", "behavior", "troubleshooting", "keyword")
 
@@ -204,7 +206,9 @@ def select_unique_passages(
             continue
         assert_train_family(raw, assignments, manifest)
         record = dict(raw)
-        record["content_hash"] = str(record.get("content_hash") or text_hash(str(record["text"])))
+        record["content_hash"] = content_hash_for_chunk(
+            str(record["text"]), str(record.get("kind", "text"))
+        )
         leaked = passage_exposes_gold_quote(str(record["text"]), quotes)
         if leaked is not None:
             raise ValueError(f"train passage contains gold evidence quote: {record['lineage_key']}")

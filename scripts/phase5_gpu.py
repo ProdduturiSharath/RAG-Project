@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
+import io
 import json
 import os
 import random
@@ -13,8 +15,8 @@ import re
 import subprocess
 import sys
 import tarfile
-import urllib.error
 import urllib.request
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -33,7 +35,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = ROOT / "data" / "train"
 DEFAULT_OUTPUT = ROOT / "phase5_outputs"
 MTEB_URL = "https://huggingface.co/spaces/mteb/leaderboard"
-HF_MODELS_URL = "https://huggingface.co/api/models?pipeline_tag=sentence-similarity&library=sentence-transformers&sort=downloads&direction=-1&limit=100"
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 PINNED = (
     "sentence-transformers==5.1.1",
@@ -44,6 +45,30 @@ PINNED = (
     "rank-bm25==0.2.2",
 )
 FALLBACK_EMBEDDERS = (
+    {
+        "model": "Qwen/Qwen3-Embedding-0.6B",
+        "query_prefix": (
+            "Instruct: Given a web search query, retrieve relevant passages that answer the query\n"
+            "Query: "
+        ),
+        "passage_prefix": "",
+        "license": "apache-2.0",
+        "source": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B",
+    },
+    {
+        "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+        "query_prefix": "query: ",
+        "passage_prefix": "",
+        "license": "apache-2.0",
+        "source": "https://huggingface.co/Snowflake/snowflake-arctic-embed-l-v2.0",
+    },
+    {
+        "model": "BAAI/bge-m3",
+        "query_prefix": "",
+        "passage_prefix": "",
+        "license": "mit",
+        "source": "https://huggingface.co/BAAI/bge-m3",
+    },
     {
         "model": "BAAI/bge-base-en-v1.5",
         "query_prefix": QUERY_PREFIX,
@@ -58,28 +83,19 @@ FALLBACK_EMBEDDERS = (
         "license": "mit",
         "source": "https://huggingface.co/BAAI/bge-large-en-v1.5",
     },
-    {
-        "model": "intfloat/e5-base-v2",
-        "query_prefix": "query: ",
-        "passage_prefix": "passage: ",
-        "license": "mit",
-        "source": "https://huggingface.co/intfloat/e5-base-v2",
-    },
-    {
-        "model": "intfloat/e5-large-v2",
-        "query_prefix": "query: ",
-        "passage_prefix": "passage: ",
-        "license": "mit",
-        "source": "https://huggingface.co/intfloat/e5-large-v2",
-    },
-    {
-        "model": "sentence-transformers/all-MiniLM-L12-v2",
-        "query_prefix": "",
-        "passage_prefix": "",
-        "license": "apache-2.0",
-        "source": "https://huggingface.co/sentence-transformers/all-MiniLM-L12-v2",
-    },
 )
+STATIC_MTEB_LINEUP = FALLBACK_EMBEDDERS
+FINE_TUNE_MODELS = (
+    "BAAI/bge-small-en-v1.5",
+    "BAAI/bge-base-en-v1.5",
+    "Snowflake/snowflake-arctic-embed-m-v1.5",
+)
+FINE_TUNE_SEEDS = (1, 2, 3)
+FINE_TUNE_SEEDS_BY_MODEL = {
+    "BAAI/bge-small-en-v1.5": (1, 2, 3),
+    "BAAI/bge-base-en-v1.5": (1, 2, 3),
+    "Snowflake/snowflake-arctic-embed-m-v1.5": (1,),
+}
 
 
 def atomic_json(path: Path, value: Any) -> None:
@@ -128,48 +144,18 @@ def print_versions() -> dict[str, Any]:
 
 
 def discover_embedders() -> list[dict[str, Any]]:
-    """Use the live HF/MTEB catalog, retaining a documented safe fallback."""
+    """Return the verified five-model lineup without contacting Hugging Face."""
 
-    discovered: list[dict[str, Any]] = []
-    try:
-        with urllib.request.urlopen(HF_MODELS_URL, timeout=30) as response:
-            values = json.loads(response.read())
-        for item in values:
-            model = str(item.get("modelId", ""))
-            card = item.get("cardData") or {}
-            license_name = str(card.get("license", "")).casefold()
-            language = card.get("language", ["en"])
-            if isinstance(language, str):
-                language = [language]
-            if not model or "en" not in {str(value).casefold() for value in language}:
-                continue
-            if license_name not in {"mit", "apache-2.0", "apache-2.0 license", "bsd-3-clause"}:
-                continue
-            # The MTEB leaderboard is the quality source; downloads are only
-            # used to enumerate current candidates, never as the score.
-            if item.get("pipeline_tag") not in {None, "sentence-similarity"}:
-                continue
-            if model not in {value["model"] for value in FALLBACK_EMBEDDERS}:
-                discovered.append(
-                    {
-                        "model": model,
-                        "query_prefix": "",
-                        "passage_prefix": "",
-                        "license": license_name,
-                        "source": f"https://huggingface.co/{model}",
-                    }
-                )
-    except (OSError, ValueError, urllib.error.URLError):
-        pass
-    ordered: list[dict[str, Any]] = []
-    for required in FALLBACK_EMBEDDERS[:2]:
-        ordered.append(required)
-    for candidate in [*FALLBACK_EMBEDDERS[2:], *discovered]:
-        if candidate["model"] not in {item["model"] for item in ordered}:
-            ordered.append(candidate)
-        if len(ordered) == 5:
-            break
-    return ordered
+    if len(STATIC_MTEB_LINEUP) != 5 or len({item["model"] for item in STATIC_MTEB_LINEUP}) != 5:
+        raise RuntimeError("static MTEB lineup must contain five unique models")
+    return [
+        {
+            **item,
+            "mteb_source": MTEB_URL,
+            "lineup_status": "static_verified",
+        }
+        for item in STATIC_MTEB_LINEUP
+    ]
 
 
 def encode(model: Any, texts: list[str], prefix: str, batch_size: int = 64) -> np.ndarray:
@@ -205,6 +191,32 @@ def add_family_keys(passages: list[dict[str, Any]], manifest: dict[str, Any]) ->
         passage["normalized_text"] = normalize(str(passage["text"]))
 
 
+def interleave_candidates(dense: list[str], sparse: list[str]) -> list[str]:
+    """Interleave dense and sparse candidates while preserving each rank order."""
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for index in range(max(len(dense), len(sparse))):
+        for values in (dense, sparse):
+            if index >= len(values):
+                continue
+            value = str(values[index])
+            if value not in seen:
+                seen.add(value)
+                result.append(value)
+    return result
+
+
+def select_negative_hashes(
+    dense: list[str], sparse: list[str], *, limit: int = 8
+) -> list[str]:
+    """Choose deterministic candidates after interleaving both rankers."""
+
+    if limit < 1:
+        raise ValueError("negative limit must be positive")
+    return interleave_candidates(dense, sparse)[:limit]
+
+
 def mine_hard_negatives(
     passages: list[dict[str, Any]],
     queries: list[dict[str, Any]],
@@ -212,7 +224,7 @@ def mine_hard_negatives(
     manifest: dict[str, Any],
 ) -> list[dict[str, Any]]:
     from rag_service.domain import Chunk
-    from rag_service.retrieval.bm25 import bm25_search
+    from rag_service.retrieval.bm25 import Bm25Index
     from rag_service.retrieval.local_models import SentenceTransformerEncoder
 
     path = output / "hard_negatives.jsonl"
@@ -235,35 +247,35 @@ def mine_hard_negatives(
     encoder = SentenceTransformerEncoder("bge-small", batch_size=64, query_instruction=True)
     passage_vectors = np.asarray(encoder.embed([row["text"] for row in passages]), dtype=np.float32)
     query_vectors = np.asarray(
-        encoder.embed([row["question"] for row in queries]), dtype=np.float32
+        encoder.embed([QUERY_PREFIX + str(row["question"]) for row in queries]), dtype=np.float32
     )
+    dense_scores = query_vectors @ passage_vectors.T
+    sparse_index = Bm25Index(chunks)
     vector_by_hash = {
         row["content_hash"]: vector for row, vector in zip(passages, passage_vectors, strict=True)
     }
+    passage_hashes = np.asarray([str(row["content_hash"]) for row in passages], dtype=object)
     result: list[dict[str, Any]] = []
-    for query, vector in zip(queries, query_vectors, strict=True):
+    for query_index, query in enumerate(queries):
         positive_hash = str(query["positive_content_hash"])
-        positive = by_hash[positive_hash]
-        dense_scores = sorted(
-            (
-                (float(np.dot(vector, candidate)), candidate["content_hash"])
-                for candidate in passages
-            ),
-            key=lambda item: (-item[0], item[1]),
-        )
+        positive = by_hash.get(positive_hash)
+        if positive is None:
+            raise ValueError(f"query {query['query_id']} has no train positive passage")
+        dense_order = np.lexsort((passage_hashes, -dense_scores[query_index]))
         dense_pool = [
-            key
-            for _, key in dense_scores[2:30]
-            if key in vector_by_hash and hard_negative_allowed(positive, by_hash[key])
+            str(passage_hashes[index])
+            for index in dense_order[2:30]
+            if str(passage_hashes[index]) in vector_by_hash
+            and hard_negative_allowed(positive, by_hash[str(passage_hashes[index])])
         ]
-        sparse = bm25_search(str(query["question"]), chunks, 30)
+        sparse = sparse_index.search(str(query["question"]), 30)
         sparse_pool = [
             match.chunk.content_hash or match.chunk.chunk_id
             for match in sparse[2:30]
             if match.chunk.content_hash
             and hard_negative_allowed(positive, by_hash[match.chunk.content_hash])
         ]
-        negatives = list(dict.fromkeys([*dense_pool, *sparse_pool]))
+        negatives = select_negative_hashes(dense_pool, sparse_pool)
         if not negatives:
             raise RuntimeError(f"no false-negative-safe hard negative for {query['query_id']}")
         result.append(
@@ -272,6 +284,7 @@ def mine_hard_negatives(
                 "question": query["question"],
                 "positive_content_hash": positive_hash,
                 "negative_content_hashes": negatives,
+                "selected_negative_content_hash": negatives[0],
                 "mine": {"dense": dense_pool, "bm25": sparse_pool, "ranks": "3-30"},
             }
         )
@@ -368,6 +381,128 @@ def embed_finetuned(
         "checkpoint_sha256": checkpoint_digest(checkpoint),
         "dimensions": int(corpus_vectors.shape[1]),
     }
+
+
+def optional_scifact_summary(output: Path) -> dict[str, Any]:
+    """Load a cached SciFact result without downloading or running evaluation."""
+
+    for name in ("scifact_summary.json", "scifact.json"):
+        path = output / name
+        if not path.exists():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"}
+        if isinstance(value, dict):
+            return {"status": "cached", **value}
+        return {"status": "unavailable", "reason": "cached SciFact summary is not an object"}
+    return {"status": "not_run", "reason": "optional cached SciFact summary was not supplied"}
+
+
+def run_scifact_gpu(
+    output: Path, sweep: list[dict[str, Any]], fine_tuned: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Run the forgetting check on the GPU while the trained models are resident."""
+
+    try:
+        from sentence_transformers import SentenceTransformer
+
+        from rag_service.evaluation.metrics import ndcg
+
+        with urllib.request.urlopen(
+            "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip",
+            timeout=120,
+        ) as response:
+            content = response.read()
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            corpus = [
+                json.loads(line) for line in archive.read("scifact/corpus.jsonl").splitlines()
+            ]
+            queries = {
+                str(row["_id"]): str(row["text"])
+                for row in map(json.loads, archive.read("scifact/queries.jsonl").splitlines())
+            }
+            qrels: dict[str, dict[str, float]] = {}
+            reader = csv.DictReader(
+                io.StringIO(archive.read("scifact/qrels/test.tsv").decode()), delimiter="\t"
+            )
+            for row in reader:
+                qrels.setdefault(row["query-id"], {})[row["corpus-id"]] = float(row["score"])
+
+        model_specs: list[dict[str, Any]] = [
+            {
+                "key": "baseline-bge-small",
+                "model": "BAAI/bge-small-en-v1.5",
+                "query_prefix": QUERY_PREFIX,
+                "passage_prefix": "",
+            }
+        ]
+        model_specs.extend(
+            {
+                "key": str(item["key"]),
+                "model": str(item["model"]),
+                "query_prefix": str(item.get("query_prefix", "")),
+                "passage_prefix": str(item.get("passage_prefix", "")),
+            }
+            for item in sweep
+        )
+        model_specs.extend(
+            {
+                "key": str(item["key"]),
+                "checkpoint": str(output / str(item["checkpoint"])),
+                "query_prefix": QUERY_PREFIX,
+                "passage_prefix": "",
+            }
+            for item in fine_tuned
+        )
+        results: dict[str, Any] = {}
+        corpus_ids = [str(row["_id"]) for row in corpus]
+        corpus_texts = [str(row.get("title", "")) + " " + str(row["text"]) for row in corpus]
+        query_ids = list(qrels)
+        for spec in model_specs:
+            model = SentenceTransformer(
+                spec.get("checkpoint", spec.get("model", "")), device="cuda"
+            )
+            corpus_vectors = np.asarray(
+                model.encode(
+                    [spec["passage_prefix"] + text for text in corpus_texts],
+                    batch_size=128,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                ),
+                dtype=np.float32,
+            )
+            query_vectors = np.asarray(
+                model.encode(
+                    [spec["query_prefix"] + queries[query_id] for query_id in query_ids],
+                    batch_size=128,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=False,
+                ),
+                dtype=np.float32,
+            )
+            values = []
+            for query_id, query_vector in zip(query_ids, query_vectors, strict=True):
+                order = np.argsort(-(corpus_vectors @ query_vector))[:10]
+                grades = [qrels[query_id].get(corpus_ids[index], 0.0) for index in order]
+                values.append(ndcg(grades, list(qrels[query_id].values())))
+            results[spec["key"]] = {
+                "status": "ok",
+                "n": len(values),
+                "ndcg@10": float(np.mean(values)) if values else 0.0,
+                "published_ndcg@10": 0.71275,
+                "delta_vs_published": float(np.mean(values)) - 0.71275 if values else -0.71275,
+            }
+        return {"status": "ok", "models": results, "dataset_url": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"}
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "models": {},
+        }
 
 
 def package(output: Path, summary: dict[str, Any]) -> None:
@@ -492,8 +627,9 @@ def run(args: argparse.Namespace) -> int:
     hard = mine_hard_negatives(passages, queries, output, manifest)
     by_hash = {str(row["content_hash"]): row for row in passages}
     examples = []
-    for row in hard:
-        negative = by_hash[row["negative_content_hashes"][0]]
+    for index, row in enumerate(hard):
+        negative_hashes = row["negative_content_hashes"]
+        negative = by_hash[negative_hashes[index % min(4, len(negative_hashes))]]
         examples.append(
             {
                 "query_id": row["query_id"],
@@ -503,13 +639,35 @@ def run(args: argparse.Namespace) -> int:
             }
         )
     fine_tuned: list[dict[str, Any]] = []
-    for base in ("BAAI/bge-small-en-v1.5", "BAAI/bge-base-en-v1.5"):
-        for seed in (1, 2, 3):
+    training_state = {
+        (str(item.get("base_model")), int(item.get("seed", 0))): item
+        for item in state.get("training", [])
+        if isinstance(item, dict) and item.get("base_model") is not None
+    }
+    for base in FINE_TUNE_MODELS:
+        for seed in FINE_TUNE_SEEDS_BY_MODEL[base]:
+            existing = training_state.get((base, seed))
+            if existing is not None:
+                key = str(existing.get("key", ""))
+                required = (
+                    output / "vectors" / f"{safe_id(key)}.npy",
+                    output / "vectors" / f"{safe_id(key)}-queries.npy",
+                    output / "vectors" / f"{safe_id(key)}-eval-queries.npy",
+                )
+                if key and all(path.exists() for path in required):
+                    fine_tuned.append(existing)
+                    continue
             checkpoint = train_one(base, seed, examples, output)
             item = embed_finetuned(output, checkpoint, base, seed, corpus, queries, eval_rows)
             fine_tuned.append(item)
-            state["training"].append(item)
+            training_state[(base, seed)] = item
+            state["training"] = list(training_state.values())
             atomic_json(state_path, state)
+    scifact = run_scifact_gpu(output, sweep, fine_tuned)
+    if scifact.get("status") == "unavailable":
+        cached = optional_scifact_summary(output)
+        if cached.get("status") == "cached":
+            scifact = cached
     summary = {
         "phase": "5",
         "generated_at": datetime.now(UTC).isoformat(),
@@ -519,8 +677,8 @@ def run(args: argparse.Namespace) -> int:
         "hard_negative_count": len(hard),
         "hard_negative_ranks": "3-30",
         "training": {
-            "models": ["BAAI/bge-small-en-v1.5", "BAAI/bge-base-en-v1.5"],
-            "seeds": [1, 2, 3],
+            "models": list(FINE_TUNE_MODELS),
+            "seeds": {model: list(seeds) for model, seeds in FINE_TUNE_SEEDS_BY_MODEL.items()},
             "loss": "MultipleNegativesRankingLoss",
             "learning_rate": 2e-5,
             "warmup_ratio": 0.10,
@@ -531,6 +689,7 @@ def run(args: argparse.Namespace) -> int:
         "corpus_texts": len(corpus),
         "train_queries": len(queries),
         "corpus_sha256": text_hash("\n".join(row["content_hash"] for row in corpus)),
+        "scifact": scifact,
     }
     package(output, summary)
     return 0
