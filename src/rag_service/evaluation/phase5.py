@@ -198,6 +198,7 @@ def select_unique_passages(
     """Materialize train passages with the leakage guards applied."""
 
     selected: dict[str, dict[str, Any]] = {}
+    skipped = 0
     for raw in records:
         if not qualifying_passage(raw):
             continue
@@ -211,8 +212,10 @@ def select_unique_passages(
         )
         leaked = passage_exposes_gold_quote(str(record["text"]), quotes)
         if leaked is not None:
-            raise ValueError(f"train passage contains gold evidence quote: {record['lineage_key']}")
+            skipped += 1
+            continue
         selected.setdefault(record["content_hash"], record)
+    print(f"Skipped {skipped} train passages due to gold quote overlap", flush=True)
     return [selected[key] for key in sorted(selected)]
 
 

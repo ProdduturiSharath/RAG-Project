@@ -739,6 +739,7 @@ def call_generator(
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("generator response has no assistant content") from exc
     parsed = extract_json(strip_thinking(content))
+    values = parse_generation(parsed, passages)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(
         cache_path,
@@ -748,7 +749,7 @@ def call_generator(
             "response": parsed,
         },
     )
-    return parse_generation(parsed, passages), latency
+    return values, latency
 
 
 def with_retries(

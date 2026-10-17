@@ -47,11 +47,10 @@ def test_only_train_families_enter_materialization() -> None:
     assert [row["lineage_key"] for row in result] == ["train-lineage"]
 
 
-def test_gold_quote_in_train_passage_aborts() -> None:
+def test_gold_quote_in_train_passage_is_skipped() -> None:
     assignments, manifest = _manifest()
     record = _record("train-lineage", "A gold phrase " + "details " * 40)
-    with pytest.raises(ValueError, match="gold evidence quote"):
-        select_unique_passages([record], assignments, manifest, {"A gold phrase details"})
+    assert select_unique_passages([record], assignments, manifest, {"A gold phrase details"}) == []
 
 
 def test_reference_only_stub_is_not_training_text() -> None:
