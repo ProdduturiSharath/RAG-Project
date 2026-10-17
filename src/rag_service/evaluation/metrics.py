@@ -55,6 +55,115 @@ def covered_units(row: Mapping[str, Any], chunk: Mapping[str, Any]) -> frozenset
     )
 
 
+def _scope_value(scope: Any, name: str, default: Any = None) -> Any:
+    if scope is None:
+        return default
+    if isinstance(scope, Mapping):
+        return scope.get(name, default)
+    return getattr(scope, name, default)
+
+
+def _version_allowed(
+    row: Mapping[str, Any], span: Mapping[str, Any], chunk: Mapping[str, Any]
+) -> bool:
+    if row.get("type") == "unchanged_control":
+        versions = [span.get("version")]
+    else:
+        independent = row["version_independent"] and row.get("type") != "version_specific"
+        versions = row["gold_versions"] if independent else [row["target_version"]]
+    return chunk.get("version") in versions
+
+
+def _family_values(value: Mapping[str, Any]) -> set[str]:
+    candidates: list[Any] = [
+        value.get("section_family"),
+        value.get("family_key"),
+        value.get("section_id"),
+        value.get("lineage_key"),
+    ]
+    path = value.get("section_path")
+    if path:
+        candidates.append(" / ".join(str(item) for item in path))
+    return {str(item) for item in candidates if item not in (None, "")}
+
+
+def _span_matches_family(span: Mapping[str, Any], row: Mapping[str, Any],
+                         chunk: Mapping[str, Any]) -> bool:
+    expected = _family_values(span) | _family_values(row)
+    return bool(expected & _family_values(chunk))
+
+
+def _windowed_units(
+    row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]], k: int,
+) -> set[str]:
+    """Find quotes in ordinal windows formed by the retrieved top-k chunks."""
+
+    groups: dict[tuple[Any, str], list[Mapping[str, Any]]] = {}
+    for chunk in ranked[:k]:
+        key = (chunk.get("version"), str(chunk.get("lineage_key", "")))
+        groups.setdefault(key, []).append(chunk)
+    found: set[str] = set()
+    for chunks in groups.values():
+        ordered = sorted(
+            chunks,
+            key=lambda chunk: (
+                chunk.get("ordinal") if isinstance(chunk.get("ordinal"), int) else 2**63,
+                str(chunk.get("chunk_id", "")),
+            ),
+        )
+        window = normalize(" ".join(str(chunk.get("text", "")) for chunk in ordered))
+        for span in row["evidence_spans"]:
+            quote = normalize(str(span.get("quote", "")))
+            if (
+                quote
+                and any(_version_allowed(row, span, chunk) for chunk in ordered)
+                and quote in window
+            ):
+                found.add(quote)
+    return found
+
+
+def _section_family_units(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]],
+                          k: int) -> set[str]:
+    def family(value: Any) -> str:
+        return str(value or "").split("#", 1)[0]
+
+    gold_families = {
+        family(span.get("lineage_key", row.get("lineage_key", "")))
+        for span in row["evidence_spans"]
+    }
+    for chunk in ranked[:k]:
+        if any(
+            _version_allowed(row, span, chunk)
+            and family(chunk.get("lineage_key")) in gold_families
+            for span in row["evidence_spans"]
+        ):
+            return {"__section_family_hit__"}
+    return set()
+
+
+def scope_matches(chunk: Mapping[str, Any], scope: Any) -> bool:
+    """Return whether a chunk survives a resolved retrieval scope."""
+
+    product_version = _scope_value(scope, "product_version")
+    if product_version is not None and chunk.get("version") != product_version:
+        return False
+    scopes = _scope_value(scope, "scopes")
+    if scopes is not None and (chunk.get("document_id"), chunk.get("version")) not in scopes:
+        return False
+    return True
+
+
+def false_exclusion(
+    row: Mapping[str, Any], relevant: Sequence[Mapping[str, Any]], scope: Any
+) -> float | None:
+    """Score a control only when scope removes every accessible correct chunk."""
+
+    if row.get("type") != "unchanged_control" or not relevant:
+        return None
+    return float(not any(scope_matches(chunk, scope) for chunk in relevant))
+
+
 def version_confusion(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]], k: int) -> int:
     """Any same-lineage wrong version above the first Correct (missing = infinity)."""
     first_correct = next((i for i, chunk in enumerate(ranked) if covers(row, chunk)), len(ranked))
@@ -85,7 +194,9 @@ def ndcg(relevance: Sequence[float], ideal: Sequence[float], k: int = 10) -> flo
 
 
 def score_question(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]],
-                   relevant_count: int) -> dict[str, float]:
+                   relevant_count: int, *,
+                   relevant: Sequence[Mapping[str, Any]] = (),
+                   scope: Any = None) -> dict[str, float]:
     if row["type"] not in SCORED_TYPES and not (row["type"] == "acl" and row["acl_allowance"]):
         return {}
     units = evidence_units(row)
@@ -98,6 +209,8 @@ def score_question(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]],
         found = set().union(*coverage[:k])
         scores[f"recall@{k}"] = len(found) / total
         scores[f"all_quotes@{k}"] = float(len(found) == total)
+    scores["windowed_recall@5"] = len(_windowed_units(row, ranked, 5)) / total
+    scores["section_family_recall@5"] = float(bool(_section_family_units(row, ranked, 5)))
     scores["mrr"] = next((1 / rank for rank, found in enumerate(coverage, 1) if found), 0.0)
     seen: set[str] = set()
     relevance: list[float] = []
@@ -111,6 +224,9 @@ def score_question(row: Mapping[str, Any], ranked: Sequence[Mapping[str, Any]],
         scores["top1_different_lineage@1"] = float(top1_different_lineage(row, ranked))
         scores.update({f"version_confusion@{k}": float(version_confusion(row, ranked, k))
                        for k in KS})
+    excluded = false_exclusion(row, relevant, scope)
+    if excluded is not None:
+        scores["false_exclusion"] = excluded
     return scores
 
 

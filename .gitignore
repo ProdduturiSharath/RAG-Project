@@ -23,6 +23,8 @@ results/*.tmp
 results/phase4.log
 results/cache/
 results_run1_backup/
+phase5_outputs/
+phase5_outputs.tar.gz
 .tools/
 .gh-config/
 
