@@ -376,7 +376,11 @@ def atomic_write(path: Path, value: Any) -> None:
 def json_request(
     url: str, key: str | None = None, *, payload: Any = None, timeout: float = 30.0
 ) -> Any:
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Evidence-RAG/1.0 (Contact: rag@example.com)",
+    }
     if key:
         if "generativelanguage.googleapis.com" in url:
             headers["x-goog-api-key"] = key
