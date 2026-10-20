@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import urllib.error
+from email.message import Message
 from typing import Any
 
 import pytest
@@ -87,10 +90,363 @@ def test_extract_json_strips_thinking_trace() -> None:
     assert phase5_prepare.extract_json('<think>private trace</think>{"ok": true}') == {"ok": True}
 
 
+def _query_payload(passages: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "passages": [
+            {
+                "queries": [
+                    {
+                        "text": f"query {style}",
+                        "style": style,
+                        "answerable_from_passage": True,
+                    }
+                    for style in phase5_prepare.STYLE_NAMES
+                ]
+            }
+            for _ in passages
+        ]
+    }
+
+
+def test_deepseek_payload_controls_reasoning_and_qwen_stays_generic() -> None:
+    passage = [{"content_hash": "p-1", "text": "PostgreSQL passage"}]
+    pro = {"provider": "deepseek", "model": "deepseek-v4-pro"}
+    qwen = {"provider": "velona", "model": "qwen/qwen3.7-plus"}
+
+    payload = phase5_prepare.generator_payload(pro, passage)
+    assert payload["max_tokens"] == 4096
+    assert payload["reasoning_effort"] == "low"
+    assert "20 words or fewer" in payload["messages"][0]["content"]
+    assert "short question" in payload["messages"][1]["content"]
+    emergency = phase5_prepare.generator_payload(
+        pro, passage, reasoning_effort="none", max_tokens=2048
+    )
+    assert emergency["max_tokens"] == 2048
+    assert emergency["reasoning_effort"] == "none"
+
+    generic = phase5_prepare.generator_payload(qwen, passage)
+    assert generic["max_tokens"] == 4096
+    assert "reasoning_effort" not in generic
+
+
+def test_generator_cache_records_usage_and_hides_reasoning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    candidate = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "chat_url": "https://example.test/chat/completions",
+    }
+    passages = [{"content_hash": "p-1", "text": "passage"}]
+    response = {
+        "choices": [{
+            "finish_reason": "stop",
+            "message": {
+                "content": json.dumps(_query_payload(passages)),
+                "reasoning_content": "private chain of thought",
+            },
+        }],
+        "usage": {
+            "prompt_tokens": 20,
+            "completion_tokens": 30,
+            "total_tokens": 50,
+            "completion_tokens_details": {"reasoning_tokens": 12},
+        },
+    }
+    monkeypatch.setattr(phase5_prepare, "json_request", lambda *args, **kwargs: response)
+    cache = tmp_path / "group.json"
+    counter = [0]
+
+    values, latency = phase5_prepare.call_generator(
+        candidate, passages, "secret", cache, request_counter=counter
+    )
+
+    assert latency >= 0
+    assert counter == [1]
+    assert values[0]["provider"] == "deepseek"
+    assert values[0]["generator"] == "deepseek-v4-pro"
+    stored = json.loads(cache.read_text())
+    assert stored["usage"] == {
+        "finish_reason": "stop",
+        "prompt_tokens": 20,
+        "completion_tokens": 30,
+        "reasoning_tokens": 12,
+        "total_tokens": 50,
+    }
+    assert "private chain of thought" not in cache.read_text()
+
+
+def test_old_group_cache_defaults_missing_per_passage_provenance(
+    tmp_path: Any,
+) -> None:
+    candidate = {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "chat_url": "https://example.test/chat/completions",
+    }
+    passages = [{"content_hash": "p-1", "text": "passage"}]
+    cache = tmp_path / "old.json"
+    cache.write_text(json.dumps({
+        "candidate": {"provider": "deepseek", "model": "deepseek-flash"},
+        "latency_seconds": 0.2,
+        "response": _query_payload(passages),
+    }))
+
+    values, _ = phase5_prepare.call_generator(candidate, passages, "secret", cache)
+
+    assert values[0]["provider"] == "deepseek"
+    assert values[0]["generator"] == "deepseek-flash"
+
+
+def test_truncation_writes_safe_usage_failure_metadata(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    candidate = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "chat_url": "https://example.test/chat/completions",
+    }
+    passages = [{"content_hash": "p-1", "text": "passage"}]
+    response = {
+        "choices": [{
+            "finish_reason": "length",
+            "message": {"content": "partial", "reasoning_content": "private trace"},
+        }],
+        "usage": {
+            "prompt_tokens": 20,
+            "completion_tokens": 4096,
+            "total_tokens": 4116,
+            "completion_tokens_details": {"reasoning_tokens": 3900},
+        },
+    }
+    monkeypatch.setattr(phase5_prepare, "json_request", lambda *args, **kwargs: response)
+    cache = tmp_path / "group.json"
+
+    with pytest.raises(phase5_prepare.GeneratorTruncated):
+        phase5_prepare.call_generator(candidate, passages, "secret", cache)
+
+    failure = json.loads(phase5_prepare.failure_cache_path(cache).read_text())
+    assert failure["usage"] == {
+        "finish_reason": "length",
+        "prompt_tokens": 20,
+        "completion_tokens": 4096,
+        "reasoning_tokens": 3900,
+        "total_tokens": 4116,
+    }
+    assert "private trace" not in phase5_prepare.failure_cache_path(cache).read_text()
+
+
+def test_single_passage_uses_deepseek_emergency_then_flash_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    primary = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "key_name": "DEEPSEEK_API_KEY",
+    }
+    flash = {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "key_name": "DEEPSEEK_API_KEY",
+    }
+    qwen = {
+        "provider": "velona",
+        "model": "qwen/qwen3.7-plus",
+        "key_name": "VELONA_API_KEY",
+    }
+    passage = {"content_hash": "p-1", "text": "passage"}
+    calls: list[tuple[str, str | None, int]] = []
+
+    def fake_with_retries(
+        candidate: Any,
+        group: list[dict[str, Any]],
+        key: str,
+        cache: Any,
+        state: Any,
+        **kwargs: Any,
+    ) -> Any:
+        calls.append((
+            candidate["model"],
+            kwargs.get("reasoning_effort") or (
+                "low" if candidate["provider"] == "deepseek" else None
+            ),
+            kwargs.get("max_tokens") or 4096,
+        ))
+        if candidate["model"] == "deepseek-v4-pro":
+            raise phase5_prepare.GeneratorTruncated("truncated")
+        values = _query_payload(group)["passages"]
+        return ([{
+            "content_hash": group[0]["content_hash"],
+            "queries": values[0]["queries"],
+            "provider": candidate["provider"],
+            "generator": candidate["model"],
+        }], 0.1)
+
+    monkeypatch.setattr(phase5_prepare, "with_retries", fake_with_retries)
+    values, _ = phase5_prepare.generate_group(
+        primary,
+        [passage],
+        "deepseek-secret",
+        tmp_path / "group.json",
+        {},
+        active_candidates=[primary, flash, qwen],
+        keys={"DEEPSEEK_API_KEY": "deepseek-secret", "VELONA_API_KEY": "velona-secret"},
+    )
+
+    assert calls == [
+        ("deepseek-v4-pro", "low", 4096),
+        ("deepseek-v4-pro", "none", 2048),
+        ("deepseek-flash", "low", 4096),
+    ]
+    assert values[0]["provider"] == "deepseek"
+    assert values[0]["generator"] == "deepseek-flash"
+
+
+def test_recovered_group_cache_keeps_per_passage_source_map(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    primary = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "key_name": "DEEPSEEK_API_KEY",
+    }
+    flash = {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "key_name": "DEEPSEEK_API_KEY",
+    }
+    passages = [{"content_hash": f"p-{index}", "text": "passage"} for index in range(3)]
+
+    def fake_with_retries(
+        candidate: Any,
+        group: list[dict[str, Any]],
+        key: str,
+        cache: Any,
+        state: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if len(group) == 3:
+            raise phase5_prepare.GeneratorTruncated("group truncated")
+        if group[0]["content_hash"] == "p-1" and candidate["model"] == "deepseek-v4-pro":
+            raise phase5_prepare.GeneratorTruncated("single truncated")
+        values = _query_payload(group)["passages"]
+        return ([{
+            "content_hash": group[0]["content_hash"],
+            "queries": values[0]["queries"],
+            "provider": candidate["provider"],
+            "generator": candidate["model"],
+        }], 0.1)
+
+    monkeypatch.setattr(phase5_prepare, "with_retries", fake_with_retries)
+    cache = tmp_path / "group.json"
+    values, _ = phase5_prepare.generate_group(
+        primary,
+        passages,
+        "deepseek-secret",
+        cache,
+        {},
+        active_candidates=[primary, flash],
+        keys={"DEEPSEEK_API_KEY": "deepseek-secret"},
+    )
+
+    assert [value["generator"] for value in values] == [
+        "deepseek-v4-pro",
+        "deepseek-flash",
+        "deepseek-v4-pro",
+    ]
+    stored = json.loads(cache.read_text())
+    assert stored["source_map"]["p-0"] == {
+        "provider": "deepseek",
+        "generator": "deepseek-v4-pro",
+    }
+    assert stored["source_map"]["p-1"] == {
+        "provider": "deepseek",
+        "generator": "deepseek-flash",
+    }
+    assert stored["response"]["passages"][1]["generator"] == "deepseek-flash"
+
+
+def test_schema_errors_get_one_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    calls = 0
+
+    def invalid_call(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        raise ValueError("invalid JSON shape")
+
+    monkeypatch.setattr(phase5_prepare, "call_generator", invalid_call)
+    monkeypatch.setattr(phase5_prepare.time, "sleep", lambda _: None)
+    with pytest.raises(RuntimeError, match="schema validation"):
+        phase5_prepare.with_retries(
+            {"provider": "deepseek", "model": "deepseek-flash"},
+            [{"content_hash": "p-1", "text": "passage"}],
+            "secret",
+            tmp_path / "cache.json",
+            {},
+        )
+    assert calls == 2
+
+
+def test_http_auth_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    calls = 0
+
+    def unauthorized(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        raise urllib.error.HTTPError(
+            "https://example.test", 401, "unauthorized", Message(), None
+        )
+
+    monkeypatch.setattr(phase5_prepare, "call_generator", unauthorized)
+    with pytest.raises(phase5_prepare.GeneratorHardFailure, match="HTTP 401"):
+        phase5_prepare.with_retries(
+            {"provider": "deepseek", "model": "deepseek-flash"},
+            [{"content_hash": "p-1", "text": "passage"}],
+            "secret",
+            tmp_path / "cache.json",
+            {},
+        )
+    assert calls == 1
+
+
+def test_network_call_guard_counts_attempts_not_batches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    candidate = {
+        "provider": "deepseek",
+        "model": "deepseek-flash",
+        "chat_url": "https://example.test/chat/completions",
+    }
+    passages = [{"content_hash": "p-1", "text": "passage"}]
+    calls = 0
+
+    def transport_failure(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        raise OSError("timeout")
+
+    monkeypatch.setattr(phase5_prepare, "json_request", transport_failure)
+    monkeypatch.setattr(phase5_prepare.time, "sleep", lambda _: None)
+    counter = [0]
+    with pytest.raises(RuntimeError, match="failed after 4 attempts"):
+        phase5_prepare.with_retries(
+            candidate,
+            passages,
+            "secret",
+            tmp_path / "cache.json",
+            {},
+            request_counter=counter,
+        )
+    assert calls == 4
+    assert counter == [4]
+
+
 def test_trial_counts_queries_and_uses_two_word_openings(monkeypatch: pytest.MonkeyPatch) -> None:
     passages = [{"content_hash": f"p-{index}", "text": "x"} for index in range(10)]
 
-    def fake_with_retries(candidate: Any, group: Any, key: str, cache: Any, state: Any) -> Any:
+    def fake_with_retries(
+        candidate: Any, group: Any, key: str, cache: Any, state: Any, **kwargs: Any
+    ) -> Any:
         values = []
         for passage in group:
             index = int(passage["content_hash"].split("-")[1])
@@ -183,7 +539,12 @@ def test_failed_batch_recovers_each_passage_and_reports_progress(
     calls: list[int] = []
 
     def fake_with_retries(
-        candidate: Any, group: list[dict[str, Any]], key: str, cache: Any, state: Any
+        candidate: Any,
+        group: list[dict[str, Any]],
+        key: str,
+        cache: Any,
+        state: Any,
+        **kwargs: Any,
     ) -> Any:
         calls.append(len(group))
         if len(group) == 3:
