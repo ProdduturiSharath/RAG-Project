@@ -51,6 +51,10 @@ TRIAL_PASSAGES = 10
 GENERATOR_CALL_LIMIT = 1500
 THINKING_RE = re.compile(r"<think(?:ing)?\b[^>]*>.*?</think(?:ing)?\s*>", re.I | re.S)
 
+
+class GeneratorTruncated(ValueError):
+    """The provider exhausted its completion budget for this request."""
+
 # Legacy provider metadata retained for compatibility with old artifacts.  It
 # is shadowed by the locked runtime lineup below and is never queried.
 PROVIDERS: tuple[dict[str, Any], ...] = (
@@ -742,7 +746,9 @@ def call_generator(
     try:
         choice = response["choices"][0]
         if choice.get("finish_reason") == "length":
-            raise ValueError("generator response was truncated")
+            raise GeneratorTruncated(
+                "generator response reached max_tokens=4096; retry with a smaller group"
+            )
         message = choice["message"]
         content = message.get("content") if isinstance(message, dict) else None
         if isinstance(content, list):
@@ -784,6 +790,16 @@ def with_retries(
             values, latency = call_generator(candidate, passages, key, cache_path)
             state[candidate["provider"]] = time.monotonic()
             return values, latency
+        except GeneratorTruncated as exc:
+            print(
+                f"Generator output hit max_tokens for {generator_label(candidate)}; "
+                "skipping duplicate group retries and switching to passage recovery",
+                flush=True,
+            )
+            raise RuntimeError(
+                f"generator {generator_label(candidate)} truncated this group; "
+                "passage recovery required"
+            ) from exc
         except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
             last = exc
             print(

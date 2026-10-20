@@ -151,6 +151,31 @@ def test_generation_cache_key_keeps_existing_batches_reusable(tmp_path: Any) -> 
     )
 
 
+def test_truncation_skips_duplicate_group_retries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    calls = 0
+    sleeps: list[float] = []
+
+    def truncated_call(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        raise phase5_prepare.GeneratorTruncated("max_tokens")
+
+    monkeypatch.setattr(phase5_prepare, "call_generator", truncated_call)
+    monkeypatch.setattr(phase5_prepare.time, "sleep", sleeps.append)
+    with pytest.raises(RuntimeError, match="truncated"):
+        phase5_prepare.with_retries(
+            {"provider": "deepseek", "model": "deepseek-v4-pro"},
+            [{"content_hash": "p-1", "text": "passage"}] * 3,
+            "secret",
+            tmp_path / "group.json",
+            {},
+        )
+    assert calls == 1
+    assert sleeps == []
+
+
 def test_failed_batch_recovers_each_passage_and_reports_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, capsys: pytest.CaptureFixture[str]
 ) -> None:
