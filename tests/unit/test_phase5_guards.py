@@ -110,6 +110,93 @@ def test_trial_counts_queries_and_uses_two_word_openings(monkeypatch: pytest.Mon
     assert result["passed"] is True
 
 
+def test_cached_batches_are_reused_before_balancing_uncached_batches(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    monkeypatch.setattr(phase5_prepare, "CACHE", tmp_path)
+    candidates = [
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+        {"provider": "deepseek", "model": "deepseek-flash"},
+        {"provider": "velona", "model": "qwen/qwen3.7-plus"},
+    ]
+    groups = [[{"content_hash": f"p-{index}", "text": "passage"}] for index in range(6)]
+    cached = phase5_prepare.generation_cache_path(candidates[1], groups[0])
+    cached.parent.mkdir(parents=True)
+    cached.write_text("cached")
+    assigned = [0, 0, 0]
+
+    selections = [
+        phase5_prepare.select_generation_candidate(candidates, group, assigned)
+        for group in groups
+    ]
+
+    assert [phase5_prepare.generator_label(item[0]) for item in selections] == [
+        "deepseek/deepseek-flash",
+        "deepseek/deepseek-v4-pro",
+        "velona/qwen/qwen3.7-plus",
+        "deepseek/deepseek-v4-pro",
+        "deepseek/deepseek-flash",
+        "velona/qwen/qwen3.7-plus",
+    ]
+    assert [item[3] for item in selections] == [True, False, False, False, False, False]
+    assert assigned == [2, 2, 2]
+
+
+def test_generation_cache_key_keeps_existing_batches_reusable(tmp_path: Any) -> None:
+    candidate = {"provider": "deepseek", "model": "deepseek-flash"}
+    passages = [{"content_hash": "p-1", "text": "passage"}]
+    expected = phase5_prepare.text_hash("deepseek:deepseek-flash:p-1")
+    assert phase5_prepare.generation_cache_path(candidate, passages, tmp_path).name == (
+        expected + ".json"
+    )
+
+
+def test_failed_batch_recovers_each_passage_and_reports_progress(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    passages = [{"content_hash": f"p-{index}", "text": "passage"} for index in range(3)]
+    calls: list[int] = []
+
+    def fake_with_retries(
+        candidate: Any, group: list[dict[str, Any]], key: str, cache: Any, state: Any
+    ) -> Any:
+        calls.append(len(group))
+        if len(group) == 3:
+            raise RuntimeError("wrong number of passage objects")
+        return (
+            [
+                {
+                    "content_hash": group[0]["content_hash"],
+                    "queries": [
+                        {
+                            "text": f"query {style}",
+                            "style": style,
+                            "answerable_from_passage": True,
+                        }
+                        for style in phase5_prepare.STYLE_NAMES
+                    ],
+                }
+            ],
+            0.1,
+        )
+
+    monkeypatch.setattr(phase5_prepare, "with_retries", fake_with_retries)
+    values, latency = phase5_prepare.generate_group(
+        {"provider": "deepseek", "model": "deepseek-v4-pro"},
+        passages,
+        "secret",
+        tmp_path / "group.json",
+        {},
+        batch_number=1,
+        total_batches=10,
+    )
+    assert len(values) == 3
+    assert latency == pytest.approx(0.3)
+    assert calls == [3, 1, 1, 1]
+    assert (tmp_path / "group.json").exists()
+    assert "Recovering deepseek/deepseek-v4-pro batch 1/10" in capsys.readouterr().out
+
+
 def test_bm25_index_matches_one_shot_search() -> None:
     chunks = [
         Chunk("a", "doc", "v1", "alpha beta"),

@@ -23,14 +23,18 @@ The exact endpoint, terms status, free status, and model metadata are recorded i
 | Velona `qwen/qwen3.7-plus` | `VELONA_API_KEY` | Permitted for this use; permitted free status. |
 
 The host trial sends standard OpenAI-compatible `messages`, temperature `0.8`,
-and `max_tokens=2000`; it deliberately omits reasoning controls and strict JSON
-schemas because the approved endpoints reject those fields.  `--sample N` prints
-grouped model/passage/style output without starting the full batch.
+`max_tokens=4096`, and standard `json_object` mode.  It deliberately omits
+reasoning controls and strict JSON schemas because the approved endpoints reject
+those fields.  `--sample N` prints grouped model/passage/style output without
+starting the full batch.
 
-For each candidate, the host must pass: at least 90% valid queries, no
-truncation, at least 50% distinct two-word openings, and median latency under 30
-seconds.  Generation uses three passages per request and a cache under
-`.cache/phase5`.
+The trial records validity, truncation, opening diversity, latency, and failure
+diagnostics, but does not silently remove a configured/keyed model from the
+active lineup.  All active models are round-robin scheduled; a failed
+three-passage request is retried one passage at a time, and an unrecoverable
+model failure stops the run instead of falling back to another wallet.
+Generation uses three passages per request, visible batch progress, and a cache
+under `.cache/phase5`.
 
 ## Training data and filtering
 

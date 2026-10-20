@@ -392,6 +392,17 @@ def json_request(
         return json.loads(response.read())
 
 
+def generator_label(candidate: dict[str, Any]) -> str:
+    return f"{candidate['provider']}/{candidate['model']}"
+
+
+def error_summary(error: Exception) -> str:
+    message = str(error).replace("\n", " ").strip()
+    if len(message) > 180:
+        message = message[:177] + "..."
+    return f"{type(error).__name__}: {message or 'no message'}"
+
+
 def generator_keys() -> dict[str, str]:
     """Read only the two approved key names, preferring the process environment."""
 
@@ -775,9 +786,16 @@ def with_retries(
             return values, latency
         except (OSError, ValueError, urllib.error.URLError, json.JSONDecodeError) as exc:
             last = exc
-            time.sleep(min(30.0, 2.0**attempt))
+            print(
+                f"Generator attempt {attempt + 1}/4 failed for {generator_label(candidate)}: "
+                f"{error_summary(exc)}",
+                flush=True,
+            )
+            if attempt < 3:
+                time.sleep(min(30.0, 2.0**attempt))
     raise RuntimeError(
-        f"generator {candidate['provider']}/{candidate['model']} failed after retries"
+        f"generator {generator_label(candidate)} failed after 4 attempts: "
+        f"{error_summary(last) if last else 'unknown error'}"
     ) from last
 
 
@@ -785,6 +803,7 @@ def trial(candidate: dict[str, Any], passages: list[dict[str, Any]], key: str) -
     latencies: list[float] = []
     openings: set[str] = set()
     valid_queries = 0
+    failures: list[dict[str, Any]] = []
     truncated = False
     state: dict[str, float] = {}
     for start in range(0, len(passages), QUERY_BATCH):
@@ -806,7 +825,7 @@ def trial(candidate: dict[str, Any], passages: list[dict[str, Any]], key: str) -
             )
         except RuntimeError as exc:
             truncated = truncated or "truncated" in str(exc).casefold()
-            break
+            failures.append({"start": start, "error": error_summary(exc)})
     total = len(passages) * 4
     return {
         "provider": candidate["provider"],
@@ -819,9 +838,11 @@ def trial(candidate: dict[str, Any], passages: list[dict[str, Any]], key: str) -
         "distinct_openings": len(openings),
         "opening_ratio": len(openings) / valid_queries if valid_queries else 0.0,
         "truncated": truncated,
+        "failures": failures,
         "passed": valid_queries >= int(0.9 * total)
         and bool(latencies)
         and not truncated
+        and not failures
         and statistics.median(latencies) < 30
         and len(openings) >= int(0.5 * valid_queries),
     }
@@ -880,12 +901,19 @@ def ranking_maps(
     questions = list(dict.fromkeys(
         question for record in passages for question in record.get("_queries", ())
     ))
+    print(
+        f"Building ranking maps for {len(questions)} unique queries over "
+        f"{len(passages)} passages",
+        flush=True,
+    )
     bm25: dict[str, dict[str, int]] = {}
     dense: dict[str, dict[str, int]] = {}
     encoder = SentenceTransformerEncoder("bge-small", batch_size=64, query_instruction=True)
+    print("Encoding train passages with bge-small", flush=True)
     passage_vectors = np.asarray(
         encoder.embed([record["text"] for record in passages]), dtype=np.float32
     )
+    print("Encoding generated queries with bge-small", flush=True)
     query_vectors = np.asarray(
         encoder.embed([QUERY_PREFIX + query for query in questions]), dtype=np.float32
     )
@@ -1003,6 +1031,110 @@ def run_sample(
                 print()
 
 
+def generation_cache_path(
+    candidate: dict[str, Any], passages: list[dict[str, Any]], directory: Path | None = None
+) -> Path:
+    cache_key = text_hash(
+        candidate["provider"]
+        + ":"
+        + candidate["model"]
+        + ":"
+        + ":".join(passage["content_hash"] for passage in passages)
+    )
+    return (directory or CACHE / "generation") / f"{cache_key}.json"
+
+
+def select_generation_candidate(
+    candidates: list[dict[str, Any]],
+    passages: list[dict[str, Any]],
+    assigned_batches: list[int],
+) -> tuple[dict[str, Any], Path, int, bool]:
+    """Reuse any matching cache, otherwise assign the least-used model."""
+
+    if not candidates or len(assigned_batches) != len(candidates):
+        raise ValueError("active generators and batch counters must be non-empty and aligned")
+    for index, candidate in enumerate(candidates):
+        cache = generation_cache_path(candidate, passages)
+        if cache.exists():
+            assigned_batches[index] += 1
+            return candidate, cache, index, True
+    index = min(range(len(candidates)), key=lambda value: (assigned_batches[value], value))
+    candidate = candidates[index]
+    assigned_batches[index] += 1
+    return candidate, generation_cache_path(candidate, passages), index, False
+
+
+def generate_group(
+    candidate: dict[str, Any],
+    passages: list[dict[str, Any]],
+    key: str,
+    cache_path: Path,
+    state: dict[str, float],
+    *,
+    batch_number: int | None = None,
+    total_batches: int | None = None,
+) -> tuple[list[dict[str, Any]], float]:
+    """Generate one batch, recovering a failed multi-passage batch individually."""
+
+    try:
+        return with_retries(candidate, passages, key, cache_path, state)
+    except RuntimeError as initial_error:
+        if len(passages) == 1:
+            raise
+        position = (
+            f" batch {batch_number}/{total_batches}"
+            if batch_number is not None and total_batches is not None
+            else " batch"
+        )
+        print(
+            f"Recovering {generator_label(candidate)}{position} one passage at a time after "
+            f"{error_summary(initial_error)}",
+            flush=True,
+        )
+        recovered: list[dict[str, Any]] = []
+        total_latency = 0.0
+        try:
+            for index, passage in enumerate(passages, 1):
+                single_cache = generation_cache_path(candidate, [passage])
+                print(
+                    f"  recovery {index}/{len(passages)} for {generator_label(candidate)} "
+                    f"passage {passage['content_hash']}",
+                    flush=True,
+                )
+                values, latency = with_retries(
+                    candidate, [passage], key, single_cache, state
+                )
+                recovered.extend(values)
+                total_latency += latency
+        except RuntimeError as recovery_error:
+            raise RuntimeError(
+                f"{generator_label(candidate)} could not recover{position}; "
+                f"initial={error_summary(initial_error)}; "
+                f"recovery={error_summary(recovery_error)}"
+            ) from recovery_error
+
+        if len(recovered) != len(passages):
+            raise RuntimeError(
+                f"{generator_label(candidate)} recovered {len(recovered)} of "
+                f"{len(passages)} passages"
+            ) from initial_error
+        response = {"passages": [{"queries": value["queries"]} for value in recovered]}
+        values = parse_generation(response, passages)
+        atomic_write(
+            cache_path,
+            {
+                "candidate": {
+                    "provider": candidate["provider"],
+                    "model": candidate["model"],
+                },
+                "latency_seconds": total_latency,
+                "response": response,
+                "recovered_individually": True,
+            },
+        )
+        return values, total_latency
+
+
 def push_train_data() -> None:
     subprocess.run(["git", "add", "data/train"], cwd=ROOT, check=True)
     result = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=ROOT)
@@ -1040,45 +1172,75 @@ def run(args: argparse.Namespace) -> int:
         run_sample(candidates, passages[: max(1, args.sample)], keys)
         return 0
     trial_passages = passages[:TRIAL_PASSAGES]
-    passing: list[dict[str, Any]] = []
-    for candidate in candidates[: max(1, args.max_models)]:
+    active = candidates[: max(1, args.max_models)]
+    if len(active) < len(candidates):
+        print(
+            f"WARNING: --max-models limits the configured lineup to {len(active)} of "
+            f"{len(candidates)} candidates",
+            flush=True,
+        )
+    print(
+        "Active generator lineup (round-robin; trial is diagnostic, not a selector): "
+        + ", ".join(generator_label(candidate) for candidate in active),
+        flush=True,
+    )
+    for candidate in active:
         key = keys.get(candidate["key_name"])
         if not key:
             continue
+        print(f"Starting generator trial: {generator_label(candidate)}", flush=True)
         result = trial(candidate, trial_passages, key)
-        print(f"Generator trial {candidate['provider']}/{candidate['model']}: {result}", flush=True)
-        if result["passed"]:
-            candidate["trial"] = result
-            passing.append(candidate)
-    if not passing:
+        candidate["trial"] = result
+        status = "PASS" if result["passed"] else "WARNING (kept active)"
         print(
-            "STOP: no generator passed JSON, truncation, opening-diversity, and latency gates.",
-            flush=True,
+            f"Generator trial {generator_label(candidate)}: {status}; {result}", flush=True
         )
-        return 3
+    atomic_write(TRAIN / "generator_market.json", market | {"candidates": candidates})
     generated: list[dict[str, Any]] = []
     state: dict[str, float] = {}
     calls = 0
-    for start in range(0, len(passages), QUERY_BATCH):
+    assigned_batches = [0 for _ in active]
+    total_batches = (len(passages) + QUERY_BATCH - 1) // QUERY_BATCH
+    for batch_index, start in enumerate(range(0, len(passages), QUERY_BATCH)):
         if calls >= GENERATOR_CALL_LIMIT:
             raise RuntimeError("generator call guard exceeded 1,500 calls")
         group = passages[start : start + QUERY_BATCH]
-        candidate = passing[(start // QUERY_BATCH) % len(passing)]
-        cache_key = text_hash(
-            candidate["provider"]
-            + ":"
-            + candidate["model"]
-            + ":"
-            + ":".join(passage["content_hash"] for passage in group)
+        candidate, cache, candidate_index, from_cache = select_generation_candidate(
+            active, group, assigned_batches
         )
-        cache = CACHE / "generation" / f"{cache_key}.json"
-        values, _ = with_retries(candidate, group, keys[candidate["key_name"]], cache, state)
+        source = "cache" if from_cache else "request"
+        print(
+            f"Generation batch {batch_index + 1}/{total_batches}: "
+            f"{generator_label(candidate)} passages {start + 1}-{start + len(group)} "
+            f"[{source}; assigned={assigned_batches[candidate_index]}]",
+            flush=True,
+        )
+        values, latency = generate_group(
+            candidate,
+            group,
+            keys[candidate["key_name"]],
+            cache,
+            state,
+            batch_number=batch_index + 1,
+            total_batches=total_batches,
+        )
         generated.extend(
             {**value, "generator": candidate["model"], "provider": candidate["provider"]}
             for value in values
         )
         calls += 1
+        print(
+            f"Generation batch {batch_index + 1}/{total_batches} complete: "
+            f"{generator_label(candidate)} latency={latency:.2f}s queries={len(values) * 4}",
+            flush=True,
+        )
+    print(
+        f"Generation complete: {len(generated)} passages / {len(generated) * 4} raw queries; "
+        "starting lexical and dense filtering",
+        flush=True,
+    )
     kept, report = filter_generated(generated, passages, exclusions)
+    print(f"Filtering complete: kept {len(kept)} queries", flush=True)
     if not TARGET_QUERIES[0] <= len(kept) <= TARGET_QUERIES[1]:
         print(
             f"Generation/filter report: kept {len(kept)}; target was {TARGET_QUERIES}", flush=True
@@ -1092,7 +1254,7 @@ def run(args: argparse.Namespace) -> int:
             "generated": len(generated) * 4,
             "kept": len(kept),
             "by_style": report,
-            "generators": passing,
+            "generators": active,
         },
     )
     if args.push:
