@@ -10,9 +10,15 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 export PYTHONPATH="$ROOT/src:$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false HF_HUB_DISABLE_TELEMETRY=1
+# Prefer the pod volume; an ordinary /workspace directory is not a mount.
+HF_CACHE_ROOT="$ROOT"
+if mountpoint -q /workspace 2>/dev/null; then
+    HF_CACHE_ROOT=/workspace
+fi
+export HF_HOME="${HF_HOME:-$HF_CACHE_ROOT/.cache/huggingface}"
 export RAG_EVAL_DATABASE_URL="${RAG_EVAL_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/evidence_rag_eval}"
-exec 9>.cache/phase5/eval.lock
 mkdir -p .cache/phase5
+exec 9>.cache/phase5/eval.lock
 if ! flock -n 9; then
     printf 'Phase 5 eval stopped: another runner holds .cache/phase5/eval.lock\n' >&2
     exit 1

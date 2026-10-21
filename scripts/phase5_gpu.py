@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gc
 import gzip
 import hashlib
 import io
@@ -15,6 +16,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 import zipfile
 from datetime import UTC, datetime
@@ -30,6 +32,7 @@ from rag_service.evaluation.phase5 import (
     record_family,
     text_hash,
 )
+from scripts import phase5_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_INPUT = ROOT / "data" / "train"
@@ -112,35 +115,65 @@ def read_gzip_jsonl(path: Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in stream if line.strip()]
 
 
+def load_inputs(input_dir: Path) -> tuple[
+    list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]],
+    list[dict[str, Any]], dict[str, Any], dict[str, str],
+]:
+    """Fail before downloads/installation if a clone lacks its frozen training inputs."""
+    paths = {
+        "train_passages": input_dir / "train_passages.jsonl.gz",
+        "corpus_texts": input_dir / "corpus_texts.jsonl.gz",
+        "train_queries": input_dir / "train_queries.jsonl.gz",
+        "gold": ROOT / "data/eval/gold.jsonl",
+        "section_families": ROOT / "data/eval/section_families.json",
+    }
+    missing = [str(path) for path in paths.values() if not path.is_file()]
+    if missing:
+        raise RuntimeError("Missing Phase 5 inputs: " + ", ".join(missing))
+    passages, corpus, queries = (
+        read_gzip_jsonl(paths[name]) for name in ("train_passages", "corpus_texts", "train_queries")
+    )
+    eval_rows = load_jsonl(paths["gold"])
+    manifest = json.loads(paths["section_families"].read_text(encoding="utf-8"))
+    if not passages or not corpus or not queries:
+        raise RuntimeError(
+            "phase5_gpu requires nonempty train_passages, corpus_texts, train_queries"
+        )
+    if len(eval_rows) != 212:
+        raise RuntimeError(f"expected 212 gold rows for host evaluation, found {len(eval_rows)}")
+    passage_ids = {row["content_hash"] for row in passages}
+    corpus_ids = {row["content_hash"] for row in corpus}
+    if len(passage_ids) != len(passages) or len(corpus_ids) != len(corpus):
+        raise ValueError("duplicate content hashes in materialized inputs")
+    if not passage_ids <= corpus_ids:
+        raise ValueError("training positives are missing from corpus_texts")
+    if len({row["query_id"] for row in queries}) != len(queries):
+        raise ValueError("duplicate training query IDs")
+    if any(row["positive_content_hash"] not in passage_ids for row in queries):
+        raise ValueError("training query references a missing positive passage")
+    fingerprints = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in paths.items()
+    }
+    print(
+        f"Inputs verified: {len(passages)} passages, {len(corpus)} corpus texts, "
+        f"{len(queries)} kept queries, {len(eval_rows)} eval queries (no 4,000-query minimum)",
+        flush=True,
+    )
+    return passages, corpus, queries, eval_rows, manifest, fingerprints
+
+
 def safe_id(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
 
 
 def install_deps() -> None:
-    if os.environ.get("PHASE5_SKIP_INSTALL") == "1":
-        print("PHASE5_SKIP_INSTALL=1: skipped pinned dependency installation", flush=True)
-        return
-    # --no-deps is the torch guard: the pod image owns torch/CUDA and pip may
-    # not replace it while installing the Python-side training utilities.
-    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", *PINNED], check=True)
+    """Install the full pinned dependency graph without replacing image-owned torch/CUDA."""
+    phase5_runtime.install_deps(PINNED)
 
 
 def print_versions() -> dict[str, Any]:
-    import torch
-
-    versions = {
-        "python": sys.version,
-        "torch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "cuda_available": bool(torch.cuda.is_available()),
-    }
-    if torch.cuda.is_available():
-        versions["gpu"] = torch.cuda.get_device_name(0)
-        versions["gpu_capability"] = list(torch.cuda.get_device_capability(0))
-    print(json.dumps({"phase": 5, "versions": versions}, sort_keys=True), flush=True)
-    if not torch.cuda.is_available():
-        raise RuntimeError("phase5_gpu requires a CUDA GPU; no CPU fallback is allowed")
-    return versions
+    """Verify training imports and report the actual CUDA runtime and package versions."""
+    return phase5_runtime.print_versions()
 
 
 def discover_embedders() -> list[dict[str, Any]]:
@@ -158,26 +191,87 @@ def discover_embedders() -> list[dict[str, Any]]:
     ]
 
 
-def encode(model: Any, texts: list[str], prefix: str, batch_size: int = 64) -> np.ndarray:
+def release_cuda() -> None:
+    import torch
+
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
+def load_gpu_model(name: str) -> Any:
+    from sentence_transformers import SentenceTransformer
+
+    print(f"Loading GPU model {name}", flush=True)
+    model = SentenceTransformer(name, device="cuda", trust_remote_code=False)
+    # Prefixes are explicit in this pipeline; do not also apply a saved default prompt.
+    model.default_prompt_name = None
+    return model
+
+
+def encode(
+    model: Any, texts: list[str], prefix: str, batch_size: int = 64, *, label: str = "encoding"
+) -> np.ndarray:
+    """Report completed batches; reduce only inference batch size on CUDA OOM."""
+    import torch
+
+    if batch_size < 1:
+        raise ValueError("encoding batch_size must be positive")
     if not texts:
         return np.empty((0, 0), dtype=np.float32)
-    values = model.encode(
-        [prefix + text for text in texts],
-        batch_size=batch_size,
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-        show_progress_bar=True,
-    )
-    return np.asarray(values, dtype=np.float32)
+    started = time.monotonic()
+    parts: list[np.ndarray] = []
+    done = 0
+    print(f"{label}: 0/{len(texts)} texts (batch_size={batch_size})", flush=True)
+    while done < len(texts):
+        batch = texts[done : done + batch_size]
+        try:
+            values = model.encode(
+                [prefix + text for text in batch],
+                batch_size=batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+        except torch.cuda.OutOfMemoryError:
+            if batch_size == 1:
+                raise
+            batch_size = max(1, batch_size // 2)
+            release_cuda()
+            print(f"{label}: CUDA OOM; retrying at batch_size={batch_size}", flush=True)
+            continue
+        array = np.asarray(values, dtype=np.float32)
+        if array.ndim != 2 or len(array) != len(batch) or not np.isfinite(array).all():
+            raise ValueError(f"{label}: invalid or non-finite embedding output")
+        parts.append(array)
+        done += len(batch)
+        elapsed = time.monotonic() - started
+        eta = elapsed / done * (len(texts) - done)
+        print(f"{label}: {done}/{len(texts)} elapsed={elapsed:.1f}s ETA={eta:.1f}s", flush=True)
+    return np.concatenate(parts)
 
 
 def write_vectors(output: Path, name: str, vectors: np.ndarray, ids: list[str]) -> None:
     vector_dir = output / "vectors"
     vector_dir.mkdir(parents=True, exist_ok=True)
-    np.save(vector_dir / f"{safe_id(name)}.npy", vectors)
+    save_array(vector_dir / f"{safe_id(name)}.npy", vectors)
     atomic_json(
         vector_dir / f"{safe_id(name)}.index.json",
         {"ids": ids, "dimensions": int(vectors.shape[1])},
+    )
+
+
+def save_array(path: Path, values: np.ndarray) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as stream:
+        np.save(stream, values)
+    temporary.replace(path)
+
+
+def vectors_complete(output: Path, key: str, *, train_queries: bool = True) -> bool:
+    suffixes = ("", "-eval-queries", "-queries") if train_queries else ("", "-eval-queries")
+    return all(
+        (output / "vectors" / f"{safe_id(key)}{suffix}{extension}").is_file()
+        for suffix in suffixes for extension in (".npy", ".index.json")
     )
 
 
@@ -225,7 +319,6 @@ def mine_hard_negatives(
 ) -> list[dict[str, Any]]:
     from rag_service.domain import Chunk
     from rag_service.retrieval.bm25 import Bm25Index
-    from rag_service.retrieval.local_models import SentenceTransformerEncoder
 
     path = output / "hard_negatives.jsonl"
     if path.exists():
@@ -244,11 +337,18 @@ def mine_hard_negatives(
         )
         for key, row in by_hash.items()
     ]
-    encoder = SentenceTransformerEncoder("bge-small", batch_size=64, query_instruction=True)
-    passage_vectors = np.asarray(encoder.embed([row["text"] for row in passages]), dtype=np.float32)
-    query_vectors = np.asarray(
-        encoder.embed([QUERY_PREFIX + str(row["question"]) for row in queries]), dtype=np.float32
-    )
+    model = load_gpu_model("BAAI/bge-small-en-v1.5")
+    try:
+        passage_vectors = encode(
+            model, [row["text"] for row in passages], "", label="Mining passage embeddings"
+        )
+        query_vectors = encode(
+            model, [str(row["question"]) for row in queries], QUERY_PREFIX,
+            label="Mining query embeddings",
+        )
+    finally:
+        del model
+        release_cuda()
     dense_scores = query_vectors @ passage_vectors.T
     sparse_index = Bm25Index(chunks)
     vector_by_hash = {
@@ -256,6 +356,7 @@ def mine_hard_negatives(
     }
     passage_hashes = np.asarray([str(row["content_hash"]) for row in passages], dtype=object)
     result: list[dict[str, Any]] = []
+    started = time.monotonic()
     for query_index, query in enumerate(queries):
         positive_hash = str(query["positive_content_hash"])
         positive = by_hash.get(positive_hash)
@@ -288,6 +389,11 @@ def mine_hard_negatives(
                 "mine": {"dense": dense_pool, "bm25": sparse_pool, "ranks": "3-30"},
             }
         )
+        if (query_index + 1) % 100 == 0 or query_index + 1 == len(queries):
+            print(
+                f"Hard-negative ranking: {query_index + 1}/{len(queries)} "
+                f"elapsed={time.monotonic() - started:.1f}s", flush=True,
+            )
     output.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".jsonl.tmp")
     temporary.write_text(
@@ -299,38 +405,71 @@ def mine_hard_negatives(
 
 def train_one(base_model: str, seed: int, examples: list[dict[str, Any]], output: Path) -> Path:
     import torch
-    from sentence_transformers import InputExample, SentenceTransformer, losses
-    from torch.utils.data import DataLoader
+    from datasets import Dataset
+    from sentence_transformers import (
+        SentenceTransformerTrainer,
+        SentenceTransformerTrainingArguments,
+    )
+    from sentence_transformers.losses import MultipleNegativesRankingLoss
+    from transformers.trainer_utils import get_last_checkpoint
 
     target = output / "checkpoints" / safe_id(base_model) / f"seed-{seed}"
-    if (target / "config_sentence_transformers.json").exists():
+    completed = target / "training_complete.json"
+    if completed.exists() and (target / "config_sentence_transformers.json").exists():
+        print(f"Reusing completed checkpoint {base_model} seed={seed}", flush=True)
         return target
+    if not examples:
+        raise ValueError("training requires at least one example")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    model = SentenceTransformer(base_model, device="cuda")
-    train_examples = [
-        InputExample(
-            texts=[QUERY_PREFIX + row["question"], row["positive_text"], row["negative_text"]]
-        )
-        for row in examples
-    ]
-    loader = DataLoader(train_examples, shuffle=True, batch_size=16)
-    loss = losses.MultipleNegativesRankingLoss(model)
-    warmup = max(1, int(len(loader) * 2 * 0.10))
-    model.fit(
-        train_objectives=[(loader, loss)],
-        epochs=2,
-        warmup_steps=warmup,
-        optimizer_params={"lr": 2e-5},
-        use_amp=True,
-        show_progress_bar=True,
-        output_path=str(target),
-        checkpoint_path=str(target / "checkpoints"),
-        checkpoint_save_steps=0,
+    model = load_gpu_model(base_model)
+    dataset = Dataset.from_dict({
+        "anchor": [QUERY_PREFIX + row["question"] for row in examples],
+        "positive": [row["positive_text"] for row in examples],
+        "negative": [row["negative_text"] for row in examples],
+    })
+    checkpoint_dir = target / "checkpoints"
+    resume = get_last_checkpoint(str(checkpoint_dir)) if checkpoint_dir.is_dir() else None
+    # fit() in ST 5.1.1 wraps this Trainer but does not expose seed/report_to.
+    # Preserve the fixed recipe, while passing the actual seed and disabling SaaS loggers.
+    training_args = SentenceTransformerTrainingArguments(
+        output_dir=str(checkpoint_dir),
+        num_train_epochs=2,
+        per_device_train_batch_size=16,
+        learning_rate=2e-5,
+        weight_decay=0.01,
+        warmup_steps=max(1, int(((len(examples) + 15) // 16) * 2 * 0.10)),
+        optim="adamw_torch",
+        fp16=True,
+        bf16=False,
+        seed=seed,
+        data_seed=seed,
+        eval_strategy="no",
+        save_strategy="steps",
+        save_steps=50,
+        save_total_limit=2,
+        logging_steps=10,
+        logging_first_step=True,
+        disable_tqdm=False,
+        report_to="none",
+        push_to_hub=False,
     )
-    model.save(str(target))
+    trainer = SentenceTransformerTrainer(
+        model=model, args=training_args, train_dataset=dataset,
+        loss=MultipleNegativesRankingLoss(model),
+    )
+    print(
+        f"Training {base_model} seed={seed}: {len(examples)} triplets; resume={resume}", flush=True
+    )
+    try:
+        trainer.train(resume_from_checkpoint=resume)
+        model.save(str(target))
+        atomic_json(completed, {"base_model": base_model, "seed": seed, "examples": len(examples)})
+    finally:
+        del trainer, model
+        release_cuda()
     return target
 
 
@@ -339,7 +478,9 @@ def checkpoint_digest(path: Path) -> str:
     for item in sorted(path.rglob("*")):
         if item.is_file():
             digest.update(str(item.relative_to(path)).encode())
-            digest.update(item.read_bytes())
+            with item.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
     return digest.hexdigest()
 
 
@@ -352,23 +493,25 @@ def embed_finetuned(
     queries: list[dict[str, Any]],
     eval_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer(str(checkpoint), device="cuda")
+    model = load_gpu_model(str(checkpoint))
     corpus_ids = [str(row["content_hash"]) for row in corpus]
     query_ids, query_texts = materialized_queries(queries)
-    corpus_vectors = encode(model, [str(row["text"]) for row in corpus], "")
-    query_vectors = encode(model, query_texts, QUERY_PREFIX)
+    corpus_vectors = encode(model, [str(row["text"]) for row in corpus], "", label="FT corpus")
+    query_vectors = encode(model, query_texts, QUERY_PREFIX, label="FT training queries")
     key = f"ft-{safe_id(model_name)}-seed-{seed}"
     write_vectors(output, key, corpus_vectors, corpus_ids)
-    np.save(output / "vectors" / f"{safe_id(key)}-queries.npy", query_vectors)
+    save_array(output / "vectors" / f"{safe_id(key)}-queries.npy", query_vectors)
     atomic_json(
         output / "vectors" / f"{safe_id(key)}-queries.index.json",
         {"ids": query_ids, "dimensions": int(query_vectors.shape[1])},
     )
     eval_ids = [str(row["id"]) for row in eval_rows]
-    eval_vectors = encode(model, [str(row["question"]) for row in eval_rows], QUERY_PREFIX)
-    np.save(output / "vectors" / f"{safe_id(key)}-eval-queries.npy", eval_vectors)
+    eval_vectors = encode(
+        model, [str(row["question"]) for row in eval_rows], QUERY_PREFIX, label="FT eval queries"
+    )
+    del model
+    release_cuda()
+    save_array(output / "vectors" / f"{safe_id(key)}-eval-queries.npy", eval_vectors)
     atomic_json(
         output / "vectors" / f"{safe_id(key)}-eval-queries.index.json",
         {"ids": eval_ids, "dimensions": int(eval_vectors.shape[1])},
@@ -406,8 +549,6 @@ def run_scifact_gpu(
     """Run the forgetting check on the GPU while the trained models are resident."""
 
     try:
-        from sentence_transformers import SentenceTransformer
-
         from rag_service.evaluation.metrics import ndcg
 
         with urllib.request.urlopen(
@@ -460,30 +601,20 @@ def run_scifact_gpu(
         corpus_ids = [str(row["_id"]) for row in corpus]
         corpus_texts = [str(row.get("title", "")) + " " + str(row["text"]) for row in corpus]
         query_ids = list(qrels)
-        for spec in model_specs:
-            model = SentenceTransformer(
-                spec.get("checkpoint", spec.get("model", "")), device="cuda"
-            )
-            corpus_vectors = np.asarray(
-                model.encode(
-                    [spec["passage_prefix"] + text for text in corpus_texts],
-                    batch_size=128,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=False,
-                ),
-                dtype=np.float32,
-            )
-            query_vectors = np.asarray(
-                model.encode(
-                    [spec["query_prefix"] + queries[query_id] for query_id in query_ids],
-                    batch_size=128,
-                    normalize_embeddings=True,
-                    convert_to_numpy=True,
-                    show_progress_bar=False,
-                ),
-                dtype=np.float32,
-            )
+        for number, spec in enumerate(model_specs, 1):
+            print(f"SciFact {number}/{len(model_specs)}: {spec['key']}", flush=True)
+            model = load_gpu_model(spec.get("checkpoint", spec.get("model", "")))
+            try:
+                corpus_vectors = encode(
+                    model, corpus_texts, spec["passage_prefix"], label="SciFact corpus"
+                )
+                query_vectors = encode(
+                    model, [queries[query_id] for query_id in query_ids], spec["query_prefix"],
+                    label="SciFact queries",
+                )
+            finally:
+                del model
+                release_cuda()
             values = []
             for query_id, query_vector in zip(query_ids, query_vectors, strict=True):
                 order = np.argsort(-(corpus_vectors @ query_vector))[:10]
@@ -496,6 +627,7 @@ def run_scifact_gpu(
                 "published_ndcg@10": 0.71275,
                 "delta_vs_published": float(np.mean(values)) - 0.71275 if values else -0.71275,
             }
+            atomic_json(output / "scifact_progress.json", {"models": results})
         return {"status": "ok", "models": results, "dataset_url": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"}
     except Exception as exc:
         return {
@@ -508,18 +640,30 @@ def run_scifact_gpu(
 def package(output: Path, summary: dict[str, Any]) -> None:
     atomic_json(output / "run_summary.json", summary)
     archive = ROOT / "phase5_outputs.tar.gz"
-    temporary = archive.with_suffix(".tar.gz.tmp")
-    with tarfile.open(temporary, "w:gz") as tar:
-        tar.add(output, arcname="phase5_outputs")
+    temporary = archive.with_name(archive.name + ".tmp")
+    files = sorted(path for path in output.rglob("*") if path.is_file())
+    print(f"Packaging {len(files)} files into {archive}", flush=True)
+    with tarfile.open(temporary, "w:gz", compresslevel=1) as tar:
+        for number, path in enumerate(files, 1):
+            tar.add(path, arcname=str(Path("phase5_outputs") / path.relative_to(output)))
+            if number % 25 == 0 or number == len(files):
+                print(f"Packaging: {number}/{len(files)} files", flush=True)
     temporary.replace(archive)
+    with archive.open("rb") as stream:
+        checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+    archive.with_name(archive.name + ".sha256").write_text(
+        f"{checksum}  {archive.name}\n", encoding="utf-8"
+    )
     print(f"Wrote {archive}", flush=True)
 
 
 def stop_pod() -> None:
     pod_id = os.environ.get("RUNPOD_POD_ID")
     try:
-        stopped = bool(pod_id) and subprocess.call(["runpodctl", "stop", "pod", pod_id]) == 0
-    except OSError:
+        stopped = pod_id is not None and bool(pod_id) and subprocess.call(
+            ["runpodctl", "stop", "pod", pod_id], timeout=30
+        ) == 0
+    except (OSError, subprocess.TimeoutExpired):
         stopped = False
     if stopped:
         print(f"Stopped RunPod pod {pod_id}", flush=True)
@@ -532,57 +676,61 @@ def stop_pod() -> None:
 
 
 def run(args: argparse.Namespace) -> int:
+    passages, corpus, queries, eval_rows, manifest, fingerprints = load_inputs(Path(args.input))
+    if getattr(args, "check_inputs", False):
+        return 0
     install_deps()
     versions = print_versions()
-    input_dir = Path(args.input)
+    if getattr(args, "preflight", False):
+        print("Runtime/import preflight passed; no model downloads or training started", flush=True)
+        return 0
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     state_path = output / "state.json"
     state = (
         json.loads(state_path.read_text()) if state_path.exists() else {"sweep": {}, "training": []}
     )
-    passages = read_gzip_jsonl(input_dir / "train_passages.jsonl.gz")
-    corpus = read_gzip_jsonl(input_dir / "corpus_texts.jsonl.gz")
-    queries = read_gzip_jsonl(input_dir / "train_queries.jsonl.gz")
-    eval_rows = load_jsonl(ROOT / "data" / "eval" / "gold.jsonl")
-    manifest = json.loads((ROOT / "data" / "eval" / "section_families.json").read_text())
-    if not passages or not corpus or not queries:
-        raise RuntimeError("phase5_gpu requires train_passages, corpus_texts, and train_queries")
+    if state_path.exists() and state.get("inputs") != fingerprints:
+        raise RuntimeError("output input fingerprints differ/missing; use a new --output directory")
+    state["inputs"] = fingerprints
+    atomic_json(state_path, state)
     embedders = discover_embedders()
     sweep: list[dict[str, Any]] = []
-    for spec in embedders:
+    for number, spec in enumerate(embedders, 1):
         model_name = spec["model"]
         key = safe_id(model_name)
-        vector_path = output / "vectors" / f"{key}.npy"
-        if (
-            vector_path.exists()
-            and (output / "vectors" / f"{key}-queries.npy").exists()
-            and (output / "vectors" / f"{key}-eval-queries.npy").exists()
-        ):
-            item = state["sweep"].get(model_name, {"model": model_name, "key": key})
+        print(f"Embedder sweep {number}/{len(embedders)}: {model_name}", flush=True)
+        if model_name in state["sweep"] and vectors_complete(output, key):
+            item = state["sweep"][model_name]
             sweep.append(item)
             continue
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer(model_name, device="cuda")
+        model = load_gpu_model(model_name)
         parameters = sum(parameter.numel() for parameter in model.parameters())
         if parameters > 600_000_000:
             raise RuntimeError(f"{model_name} has {parameters} parameters, over the 600M cap")
-        corpus_vectors = encode(model, [str(row["text"]) for row in corpus], spec["passage_prefix"])
+        corpus_vectors = encode(
+            model, [str(row["text"]) for row in corpus], spec["passage_prefix"],
+            label="Sweep corpus",
+        )
         query_ids, query_texts = materialized_queries(queries)
-        query_vectors = encode(model, query_texts, spec["query_prefix"])
+        query_vectors = encode(
+            model, query_texts, spec["query_prefix"], label="Sweep train queries"
+        )
         if corpus_vectors.shape[1] > 1024:
             raise RuntimeError(f"{model_name} exceeds the 1,024-dimensional sweep limit")
         write_vectors(output, key, corpus_vectors, [str(row["content_hash"]) for row in corpus])
-        np.save(output / "vectors" / f"{key}-queries.npy", query_vectors)
+        save_array(output / "vectors" / f"{key}-queries.npy", query_vectors)
         atomic_json(
             output / "vectors" / f"{key}-queries.index.json",
             {"ids": query_ids, "dimensions": int(query_vectors.shape[1])},
         )
         eval_vectors = encode(
-            model, [str(row["question"]) for row in eval_rows], spec["query_prefix"]
+            model, [str(row["question"]) for row in eval_rows], spec["query_prefix"],
+            label="Sweep eval queries",
         )
-        np.save(output / "vectors" / f"{key}-eval-queries.npy", eval_vectors)
+        del model
+        release_cuda()
+        save_array(output / "vectors" / f"{key}-eval-queries.npy", eval_vectors)
         atomic_json(
             output / "vectors" / f"{key}-eval-queries.index.json",
             {
@@ -607,16 +755,21 @@ def run(args: argparse.Namespace) -> int:
     # Keep the Phase 4 bge-small comparison reproducible without relying on
     # whichever local model cache happens to exist on the host.
     baseline_key = "baseline-bge-small"
-    if not (output / "vectors" / f"{baseline_key}.npy").exists():
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer("BAAI/bge-small-en-v1.5", device="cuda")
-        baseline_vectors = encode(model, [str(row["text"]) for row in corpus], "")
-        baseline_eval = encode(model, [str(row["question"]) for row in eval_rows], QUERY_PREFIX)
+    if not vectors_complete(output, baseline_key, train_queries=False):
+        model = load_gpu_model("BAAI/bge-small-en-v1.5")
+        baseline_vectors = encode(
+            model, [str(row["text"]) for row in corpus], "", label="Baseline corpus"
+        )
+        baseline_eval = encode(
+            model, [str(row["question"]) for row in eval_rows], QUERY_PREFIX,
+            label="Baseline eval queries",
+        )
+        del model
+        release_cuda()
         write_vectors(
             output, baseline_key, baseline_vectors, [str(row["content_hash"]) for row in corpus]
         )
-        np.save(output / "vectors" / f"{baseline_key}-eval-queries.npy", baseline_eval)
+        save_array(output / "vectors" / f"{baseline_key}-eval-queries.npy", baseline_eval)
         atomic_json(
             output / "vectors" / f"{baseline_key}-eval-queries.index.json",
             {
@@ -649,12 +802,7 @@ def run(args: argparse.Namespace) -> int:
             existing = training_state.get((base, seed))
             if existing is not None:
                 key = str(existing.get("key", ""))
-                required = (
-                    output / "vectors" / f"{safe_id(key)}.npy",
-                    output / "vectors" / f"{safe_id(key)}-queries.npy",
-                    output / "vectors" / f"{safe_id(key)}-eval-queries.npy",
-                )
-                if key and all(path.exists() for path in required):
+                if key and vectors_complete(output, key):
                     fine_tuned.append(existing)
                     continue
             checkpoint = train_one(base, seed, examples, output)
@@ -672,6 +820,7 @@ def run(args: argparse.Namespace) -> int:
         "phase": "5",
         "generated_at": datetime.now(UTC).isoformat(),
         "versions": versions,
+        "inputs": fingerprints,
         "mteb_source": MTEB_URL,
         "embedder_sweep": sweep,
         "hard_negative_count": len(hard),
@@ -699,11 +848,30 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(DEFAULT_INPUT))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
+    parser.add_argument(
+        "--check-inputs", action="store_true", help="validate inputs offline and exit"
+    )
+    parser.add_argument(
+        "--preflight", action="store_true", help="check inputs, install/imports, CUDA"
+    )
+    stop = parser.add_mutually_exclusive_group()
+    stop.add_argument("--no-stop", dest="stop_on_exit", action="store_false",
+                      help="leave pod running for artifact retrieval (default)")
+    stop.add_argument("--stop-on-exit", action="store_true",
+                      help="stop on exit; requires persistent storage and restart to copy")
+    parser.set_defaults(stop_on_exit=False)
     args = parser.parse_args()
     try:
         return run(args)
     finally:
-        stop_pod()
+        if args.stop_on_exit:
+            stop_pod()
+        elif not args.check_inputs:
+            print(
+                "Pod NOT stopped. Download and verify phase5_outputs.tar.gz, then STOP the pod "
+                "manually to end GPU billing. On failure, keep logs/checkpoints for diagnosis.",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":
