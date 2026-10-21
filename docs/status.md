@@ -633,3 +633,9 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
 - `docs/phase4_findings.md` and `results/phase4_table.md` are committed; the approximately 930 MB per-arm JSON artifacts stay local. Findings regenerate with `bash scripts/run_phase4.sh --metadata-prefix --scifact`.
 - `results_run1_backup/` was removed; Phase 5 has not started.
 - Future sessions reuse the project-local GitHub login with `GH_CONFIG_DIR="$PWD/.gh-config" .tools/gh/gh auth status`; Git uses the ignored `.tools/git-credential-gh` wrapper configured locally.
+
+## Phase 5 implementation — 2026-10-14
+- `phase-5-finetune` adds resumable host prepare, GPU sweep/training, host evaluation, model-card provenance, and focused leakage guards.
+- The prepare stage uses Postgres-first active chunks, locked Lineup A generators, deterministic 1,350-passage stratification, and a `--sample N` offline-sized generation path.
+- The GPU stage uses the verified static MTEB lineup, dense/BM25 interleaved hard negatives, three BGE seeds plus Snowflake seed 1, and GPU SciFact summaries.
+- Evaluation preserves ACL/scope gates, averages multi-seed metrics per question, and reports lineage-bootstrap CIs for strict, windowed, and section-family recall.
