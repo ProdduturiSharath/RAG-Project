@@ -90,6 +90,27 @@ host does not re-encode the SciFact corpus.
 Questions are model-written on both sides and can favor lexical overlap; BM25
 may remain ahead.  The evaluation corpus includes training passages, cohorts are
 small, and no result is a claim about unseen documentation or answer quality.
-The Phase 4 recommended replay is documented separately in generated findings
-when the host evaluation completes; this branch does not invent a metric before
-that run.
+The Phase 4 recommended replay is documented separately in generated findings;
+it remains a weighted-fusion approximation, not a fresh Phase 4 rerun.
+
+## Completed host evaluation — 2026-10-24
+
+The host evaluation reused the completed Race Engineering GPU artifacts and
+the persisted Phase 4 Postgres baseline, without retraining. Exact results,
+lineage-bootstrap confidence intervals, and paired comparisons are in
+`results/phase5_results.json`; the generated views are `results/phase5_table.md`
+and `docs/phase5_findings.md`.
+
+Dev selected `dense-Qwen_Qwen3-Embedding-0.6B` among the untrained sweep models;
+all seven fine-tuned seed alphas selected 0.25. On the 82 scored test questions,
+BM25 nDCG@10 is 0.5529033993 and the recommended baseline is 0.5715765760.
+The fine-tuned recommended variants score 0.5697756181 (BGE-small, three-seed
+question means), 0.5804896518 (BGE-base, three-seed question means), and
+0.5894004897 (Snowflake, seed 1). These are point estimates, not a claim of
+statistically established improvement. The selected untrained model's cached
+GPU SciFact nDCG@10 is 0.7023462563 on 300 queries.
+
+The performance changes preserve the ranking recipe, strict ACL/version
+filtering, and per-question metric semantics. Regression tests compare against
+the original dense/BM25/hybrid logic, including fallback hashes, top-k ties,
+cache invalidation, authorized subsets, and automatic version scope.

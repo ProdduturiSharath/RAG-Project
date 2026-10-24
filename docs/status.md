@@ -639,3 +639,29 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
 - The prepare stage uses Postgres-first active chunks, locked Lineup A generators, deterministic 1,350-passage stratification, and a `--sample N` offline-sized generation path.
 - The GPU stage uses the verified static MTEB lineup, dense/BM25 interleaved hard negatives, three BGE seeds plus Snowflake seed 1, and GPU SciFact summaries.
 - Evaluation preserves ACL/scope gates, averages multi-seed metrics per question, and reports lineage-bootstrap CIs for strict, windowed, and section-family recall.
+
+## Phase 5 host evaluation closeout — 2026-10-24
+
+- `bash scripts/phase5_eval.sh` completed with exit code 0 in 355.20 seconds.
+  The earlier unoptimized run had not finished after approximately three hours;
+  that interrupted run is not a completed timing baseline.
+- Reused the Race Engineering GPU outputs through the ignored `phase5_outputs`
+  symlink and all 127,577 existing rows in `phase5_1efc7486ead74d968f1e.vectors`.
+  No models were retrained, GPU work repeated, or artifacts/schema deleted.
+- The evaluator caches exact ordered BM25 subsets and sparse query scores,
+  uses float32 matrix-vector dense scoring with deterministic cutoff ties, and
+  reports question progress and stage timings. ACL and version filtering remain
+  before top-k. Text-hash fallback is preserved and computed once per chunk.
+- Generated `results/phase5_results.json`, `results/phase5_table.md`, and
+  `docs/phase5_findings.md`: 52 arm/split summaries and 120 paired comparisons
+  from 115 dev and 97 test questions (82 test questions have nDCG scores).
+- Source: `results/phase5_results.json`. Dev selected
+  `dense-Qwen_Qwen3-Embedding-0.6B`; all seven fine-tuned alpha selections were
+  0.25. Test nDCG@10 means: BM25 0.5529033993, recommended baseline
+  0.5715765760, fine-tuned recommended BGE-small 0.5697756181, BGE-base
+  0.5804896518, and Snowflake 0.5894004897. These point estimates alone do not
+  establish a fine-tuning win; use the paired confidence intervals and limits.
+- Verification: 154 Phase 5 tests passed; full offline suite 221 passed,
+  16 skipped; `ruff check .` passed; full `mypy .` passed with 0 errors across
+  107 source files after typing fixes in the corpus/ingestion utility scripts.
+- Results and edits remain local for review; no commit/push or Phase 6 run.

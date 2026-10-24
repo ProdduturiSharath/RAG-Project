@@ -6,14 +6,17 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import heapq
 import io
 import json
 import os
 import statistics
+import time
 import urllib.request
 import zipfile
 from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +37,7 @@ from rag_service.evaluation.metrics import (
 )
 from rag_service.evaluation.phase4_data import allowed
 from rag_service.evaluation.phase5 import normalize
-from rag_service.retrieval.bm25 import bm25_search
+from rag_service.retrieval.bm25 import Bm25Index, cached_bm25_index, clear_bm25_index_cache
 from rag_service.retrieval.models import RetrievalFilters
 from rag_service.retrieval.scope import resolve_scope
 from rag_service.storage.serialization import chunk_from_payload
@@ -183,6 +186,22 @@ def import_vectors(
             sql.Identifier(schema)
         )
     )
+    existing = connection.execute(
+        sql.SQL("SELECT count(*) AS count FROM {}.vectors WHERE embedder_id=%s").format(
+            sql.Identifier(schema)
+        ),
+        (key,),
+    ).fetchone()
+    if existing is None:
+        raise RuntimeError(f"Could not count imported vectors for {schema}/{key}")
+    existing_count = int(existing["count"])
+    if existing_count == len(vectors):
+        connection.commit()
+        print(
+            f"Reusing imported vectors: schema={schema} arm={key} rows={existing_count}",
+            flush=True,
+        )
+        return
     with connection.cursor() as cursor:
         cursor.executemany(
             sql.SQL("""INSERT INTO {}.vectors
@@ -206,6 +225,7 @@ def chunk_records(
             "chunk_id": chunk.chunk_id,
             "document_id": chunk.document_id,
             "text": chunk.text,
+            "fallback_hash": hashlib.sha256(chunk.text.encode()).hexdigest(),
             "normalized_text": normalize(chunk.text),
             "version": chunk.version,
             "lineage_key": chunk.lineage_key or "",
@@ -223,35 +243,146 @@ def chunk_records(
     ]
 
 
+@dataclass(eq=False)
+class DenseMatrix:
+    """Immutable vector snapshot with bounded, snapshot-owned query score cache."""
+
+    matrix: np.ndarray
+    chunk_ids: tuple[str, ...]
+    row_by_chunk_id: dict[str, int]
+    other_dimensions: dict[int, DenseMatrix] = field(default_factory=dict)
+    scores: dict[bytes, np.ndarray] = field(default_factory=dict)
+
+
+def build_dense_matrix(
+    records: list[dict[str, Any]], vectors: dict[str, np.ndarray]
+) -> DenseMatrix:
+    # Share repeated content-hash rows across document versions instead of
+    # allocating another full matrix for every ACL/version subset.
+    groups: dict[int, dict[str, np.ndarray]] = defaultdict(dict)
+    chunk_keys: dict[int, dict[str, str]] = defaultdict(dict)
+    for record in records:
+        vector_key = str(record.get("content_hash") or "")
+        vector = vectors.get(vector_key)
+        if vector is None:
+            vector_key = str(record["fallback_hash"])
+            vector = vectors.get(vector_key)
+        if vector is None:
+            continue
+        value = np.asarray(vector, dtype=np.float32)
+        if value.ndim != 1:
+            continue
+        dimension = len(value)
+        groups[dimension][vector_key] = value
+        chunk_keys[dimension][str(record["chunk_id"])] = vector_key
+    indexes = {}
+    for dimension, group in groups.items():
+        positions = {key: number for number, key in enumerate(group)}
+        matrix = np.stack(list(group.values())).astype(np.float32, copy=False)
+        matrix.setflags(write=False)
+        indexes[dimension] = DenseMatrix(
+            matrix, tuple(chunk_keys[dimension]),
+            {chunk_id: positions[key] for chunk_id, key in chunk_keys[dimension].items()},
+        )
+    if not indexes:
+        return DenseMatrix(np.empty((0, 0), dtype=np.float32), (), {})
+    first = indexes.pop(next(iter(indexes)))
+    first.other_dimensions = indexes
+    return first
+
+
+def _top_dense_indices(scores: np.ndarray, chunk_ids: tuple[str, ...], top_k: int) -> list[int]:
+    if top_k <= 0 or not len(scores):
+        return []
+    limit = min(top_k, len(scores))
+    threshold = float(np.partition(scores, len(scores) - limit)[len(scores) - limit])
+    better = np.flatnonzero(scores > threshold).tolist()
+    ties = np.flatnonzero(scores == threshold).tolist()
+    # Do not sort the full corpus even when all scores tie at the cutoff.
+    candidates = better + heapq.nsmallest(limit - len(better), ties, key=chunk_ids.__getitem__)
+    return sorted(candidates, key=lambda index: (-float(scores[index]), chunk_ids[index]))
+
+
 def rank_dense(
     query: np.ndarray,
     records: list[dict[str, Any]],
     vectors: dict[str, np.ndarray],
     top_k: int = 30,
+    dense_matrix: DenseMatrix | None = None,
 ) -> list[dict[str, Any]]:
-    scored = []
-    for record in records:
-        vector = vectors.get(record["content_hash"])
-        if vector is None:
-            vector = vectors.get(hashlib.sha256(record["text"].encode()).hexdigest())
-        if vector is not None and len(vector) == len(query):
-            scored.append((float(np.dot(query, vector)), record))
+    index = dense_matrix or build_dense_matrix(records, vectors)
+    if len(query) != index.matrix.shape[1]:
+        alternate = index.other_dimensions.get(len(query))
+        if alternate is None:
+            return []
+        index = alternate
+    selected = [record for record in records if record["chunk_id"] in index.row_by_chunk_id]
+    if not selected or top_k <= 0:
+        return []
+    query_array = np.asarray(query, dtype=np.float32)
+    cache_key = query_array.tobytes()
+    all_scores = index.scores.get(cache_key)
+    if all_scores is None:
+        all_scores = index.matrix @ query_array
+        index.scores[cache_key] = all_scores
+        if len(index.scores) > 256:
+            index.scores.pop(next(iter(index.scores)))
+    # Filter BEFORE top-k; cached scores can never add unauthorized candidates.
+    scores = all_scores[[index.row_by_chunk_id[record["chunk_id"]] for record in selected]]
+    chunk_ids = tuple(str(record["chunk_id"]) for record in selected)
+    positions = _top_dense_indices(scores, chunk_ids, top_k)
     return [
-        dict(record, score=score)
-        for score, record in sorted(scored, key=lambda value: (-value[0], value[1]["chunk_id"]))[
-            :top_k
-        ]
+        dict(selected[position], score=float(scores[position]))
+        for position in positions
     ]
+
+
+_BM25_RESULT_CACHE_LIMIT = 4096
+_BM25_RESULT_CACHE: dict[
+    tuple[str, tuple[str, ...], int], tuple[Bm25Index, tuple[tuple[str, float], ...]]
+] = {}
+_RECORD_ORDER_CACHE_LIMIT = 512
+_RECORD_ORDER_CACHE: dict[tuple[str, ...], tuple[str, ...]] = {}
+_SCOPE_CACHE_LIMIT = 1024
+_SCOPE_CACHE: dict[
+    tuple[str, str | None, bool], tuple[list[dict[str, Any]], list[Chunk], Any]
+] = {}
+_RELEVANT_CACHE_LIMIT = 4096
+_RELEVANT_CACHE: dict[tuple[str, str | None], tuple[dict[str, Any], ...]] = {}
+# Hold references as well as identities: addresses must not be recycled into
+# another corpus's cache keys. Records/chunks are frozen for one evaluation run.
+_EVAL_SNAPSHOT: tuple[tuple[Chunk, ...], tuple[dict[str, Any], ...], str] | None = None
+
+
+def clear_phase5_rank_caches() -> None:
+    """Clear process-local Phase 5 ranking caches for tests and reruns."""
+
+    global _EVAL_SNAPSHOT
+    _BM25_RESULT_CACHE.clear()
+    _RECORD_ORDER_CACHE.clear()
+    _SCOPE_CACHE.clear()
+    _RELEVANT_CACHE.clear()
+    _EVAL_SNAPSHOT = None
 
 
 def rank_bm25(
     query: str, chunks: list[Chunk], records: list[dict[str, Any]], top_k: int = 30
 ) -> list[dict[str, Any]]:
+    cache_key = (query, tuple(chunk.chunk_id for chunk in chunks), top_k)
+    index = cached_bm25_index(chunks)
+    cached = _BM25_RESULT_CACHE.get(cache_key)
+    if cached is not None and cached[0] is index:
+        scores = cached[1]
+    else:
+        scores = tuple(
+            (match.chunk.chunk_id, float(match.sparse_score))
+            for match in index.search(query, top_k)
+        )
+        _BM25_RESULT_CACHE[cache_key] = (index, scores)
+        if len(_BM25_RESULT_CACHE) > _BM25_RESULT_CACHE_LIMIT:
+            _BM25_RESULT_CACHE.pop(next(iter(_BM25_RESULT_CACHE)))
     by_id = {record["chunk_id"]: record for record in records}
-    return [
-        dict(by_id[match.chunk.chunk_id], score=float(match.sparse_score))
-        for match in bm25_search(query, chunks, top_k)
-    ]
+    return [dict(by_id[chunk_id], score=score) for chunk_id, score in scores]
 
 
 def rank_hybrid(
@@ -262,41 +393,65 @@ def rank_hybrid(
     vectors: dict[str, np.ndarray],
     alpha: float,
     recommended: bool = False,
+    dense_matrix: DenseMatrix | None = None,
 ) -> list[dict[str, Any]]:
-    dense = rank_dense(query_vector, records, vectors, 200)
+    dense = rank_dense(query_vector, records, vectors, 200, dense_matrix=dense_matrix)
     sparse = rank_bm25(query, chunks, records, 200)
     dense_scores = {row["chunk_id"]: max(0.0, row["score"]) for row in dense}
     sparse_scores = {row["chunk_id"]: row["score"] for row in sparse}
     dense_max = max(dense_scores.values(), default=0.0) or 1.0
     sparse_max = max(sparse_scores.values(), default=0.0) or 1.0
-    values = []
-    for record in records:
-        dense_part = dense_scores.get(record["chunk_id"], 0.0) / dense_max
-        sparse_part = sparse_scores.get(record["chunk_id"], 0.0) / sparse_max
+    candidate_ids = set(dense_scores) | set(sparse_scores)
+    positive: list[tuple[float, dict[str, Any]]] = []
+    by_id = {str(record["chunk_id"]): record for record in records}
+    for chunk_id in candidate_ids:
+        record = by_id[chunk_id]
+        dense_part = dense_scores.get(chunk_id, 0.0) / dense_max
+        sparse_part = sparse_scores.get(chunk_id, 0.0) / sparse_max
         score = alpha * dense_part + (1.0 - alpha) * sparse_part
-        values.append((score, record))
-    return [
-        dict(record, score=score)
-        for score, record in sorted(
-            values, key=lambda value: (-value[0], value[1]["chunk_id"])
-        )[:30]
+        if score > 0.0:
+            positive.append((score, record))
+    positive.sort(key=lambda value: (-value[0], value[1]["chunk_id"]))
+    if len(positive) >= 30:
+        return [dict(record, score=score) for score, record in positive[:30]]
+    ordered_ids = tuple(str(record["chunk_id"]) for record in records)
+    sorted_ids = _RECORD_ORDER_CACHE.get(ordered_ids)
+    if sorted_ids is None:
+        sorted_ids = tuple(sorted(ordered_ids))
+        _RECORD_ORDER_CACHE[ordered_ids] = sorted_ids
+        if len(_RECORD_ORDER_CACHE) > _RECORD_ORDER_CACHE_LIMIT:
+            _RECORD_ORDER_CACHE.pop(next(iter(_RECORD_ORDER_CACHE)))
+    positive_ids = {str(record["chunk_id"]) for _score, record in positive}
+    zeros = (by_id[chunk_id] for chunk_id in sorted_ids if chunk_id not in positive_ids)
+    remaining = 30 - len(positive)
+    return [dict(record, score=score) for score, record in positive] + [
+        dict(record, score=0.0) for _number, record in zip(range(remaining), zeros, strict=False)
     ]
 
 
 def resolve_eval_scope(
-    query: str, records: list[dict[str, Any]], *, enabled: bool
+    query: str,
+    records: list[dict[str, Any]],
+    *,
+    enabled: bool,
+    available: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], Any]:
     """Resolve automatic version scope against the authorized candidate set."""
 
     if not enabled:
         return records, None
-    available: dict[str, set[str]] = defaultdict(set)
-    for record in records:
-        available[str(record["document_id"])].add(str(record["version"]))
+    if available is None:
+        available_sets: dict[str, set[str]] = defaultdict(set)
+        for record in records:
+            available_sets[str(record["document_id"])].add(str(record["version"]))
+        available = {
+            document: tuple(sorted(versions))
+            for document, versions in available_sets.items()
+        }
     scope = resolve_scope(
         query,
         RetrievalFilters(version_mode="auto"),
-        {document: tuple(versions) for document, versions in available.items()},
+        available,
         "auto",
     )
     return [record for record in records if scope_matches(record, scope.filters)], scope
@@ -312,26 +467,69 @@ def evaluate_arm(
     alpha: float | None = None,
     recommended: bool = False,
     policy: Mapping[str, Any] | None = None,
+    dense_matrix: DenseMatrix | None = None,
 ) -> list[dict[str, Any]]:
+    global _EVAL_SNAPSHOT
+    started = time.perf_counter()
+    print(f"Evaluate {name}: 0/{len(rows)} alpha={alpha} scoped={recommended}", flush=True)
     if policy is None and any(row["type"] == "acl" for row in rows):
         policy = load_acl_policy()
+    snapshot = (tuple(chunks), tuple(records), json.dumps(policy, sort_keys=True))
+    if _EVAL_SNAPSHOT is None or snapshot != _EVAL_SNAPSHOT:
+        _SCOPE_CACHE.clear()
+        _RELEVANT_CACHE.clear()
+        _EVAL_SNAPSHOT = snapshot
+    if dense_matrix is None and corpus_vectors is not None:
+        dense_matrix = build_dense_matrix(records, corpus_vectors)
     output = []
-    for row in rows:
+    authorized_cache: dict[
+        str | None, tuple[list[Chunk], list[dict[str, Any]], dict[str, tuple[str, ...]]]
+    ] = {}
+
+    def authorized_for(requester: str | None) -> tuple[
+        list[Chunk], list[dict[str, Any]], dict[str, tuple[str, ...]]
+    ]:
+        cache_key = requester
+        cached = authorized_cache.get(cache_key)
+        if cached is not None:
+            return cached
         authorized_chunks = chunks
-        if row["type"] == "acl":
+        if requester is not None:
             if policy is None:
                 raise ValueError("ACL evaluation requires a loaded policy")
             authorized_chunks = [
-                chunk for chunk in chunks if allowed(chunk, policy, row["requester"])
+                chunk for chunk in chunks if allowed(chunk, policy, requester)
             ]
         authorized_ids = {chunk.chunk_id for chunk in authorized_chunks}
         authorized_records = [record for record in records if record["chunk_id"] in authorized_ids]
+        available_sets: dict[str, set[str]] = defaultdict(set)
+        for record in authorized_records:
+            available_sets[str(record["document_id"])].add(str(record["version"]))
+        available = {
+            document: tuple(sorted(versions))
+            for document, versions in available_sets.items()
+        }
+        value = (authorized_chunks, authorized_records, available)
+        authorized_cache[cache_key] = value
+        return value
+
+    for number, row in enumerate(rows, 1):
+        requester = str(row["requester"]) if row["type"] == "acl" else None
+        authorized_chunks, authorized_records, available = authorized_for(requester)
         scope_enabled = recommended or name == "recommended" or name.startswith("ft-recommended-")
-        scoped_records, scope = resolve_eval_scope(
-            row["question"], authorized_records, enabled=scope_enabled
-        )
-        scoped_ids = {record["chunk_id"] for record in scoped_records}
-        ranked_chunks = [chunk for chunk in authorized_chunks if chunk.chunk_id in scoped_ids]
+        scope_key = (str(row["question"]), requester, scope_enabled)
+        scoped_cached = _SCOPE_CACHE.get(scope_key)
+        if scoped_cached is None:
+            scoped_records_value, scope = resolve_eval_scope(
+                row["question"], authorized_records, enabled=scope_enabled, available=available
+            )
+            scoped_ids = {record["chunk_id"] for record in scoped_records_value}
+            ranked_chunks = [chunk for chunk in authorized_chunks if chunk.chunk_id in scoped_ids]
+            scoped_cached = (scoped_records_value, ranked_chunks, scope)
+            _SCOPE_CACHE[scope_key] = scoped_cached
+            if len(_SCOPE_CACHE) > _SCOPE_CACHE_LIMIT:
+                _SCOPE_CACHE.pop(next(iter(_SCOPE_CACHE)))
+        scoped_records, ranked_chunks, scope = scoped_cached
         if name == "bm25":
             ranked = rank_bm25(row["question"], ranked_chunks, scoped_records)
         elif query_vectors is not None and corpus_vectors is not None:
@@ -339,7 +537,9 @@ def evaluate_arm(
             if query is None:
                 raise ValueError(f"missing evaluation query vector {name}/{row['id']}")
             if alpha is None:
-                ranked = rank_dense(query, scoped_records, corpus_vectors)
+                ranked = rank_dense(
+                    query, scoped_records, corpus_vectors, dense_matrix=dense_matrix
+                )
             else:
                 ranked = rank_hybrid(
                     row["question"],
@@ -349,10 +549,18 @@ def evaluate_arm(
                     corpus_vectors,
                     alpha,
                     recommended,
+                    dense_matrix=dense_matrix,
                 )
         else:
             raise ValueError(f"arm {name} has no vector inputs")
-        relevant = [record for record in authorized_records if covers(row, record)]
+        relevant_key = (json.dumps(row, sort_keys=True), requester)
+        relevant_cached = _RELEVANT_CACHE.get(relevant_key)
+        if relevant_cached is None:
+            relevant_cached = tuple(record for record in authorized_records if covers(row, record))
+            _RELEVANT_CACHE[relevant_key] = relevant_cached
+            if len(_RELEVANT_CACHE) > _RELEVANT_CACHE_LIMIT:
+                _RELEVANT_CACHE.pop(next(iter(_RELEVANT_CACHE)))
+        relevant = list(relevant_cached)
         metrics = score_question(
             row,
             ranked,
@@ -376,6 +584,11 @@ def evaluate_arm(
                 "scope_versions": list(scope.versions) if scope is not None else [],
             }
         )
+        if number % 25 == 0 or number == len(rows):
+            print(
+                f"Evaluate {name}: {number}/{len(rows)} "
+                f"elapsed={time.perf_counter() - started:.2f}s", flush=True,
+            )
     return output
 
 
@@ -466,6 +679,8 @@ def breakdown(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def smoke_gate(arms: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> None:
+    started = time.perf_counter()
+    print(f"Smoke gate start: {len(arms)} arms", flush=True)
     smoke = rows[:3]
     failures = []
     for name, config in arms.items():
@@ -479,6 +694,7 @@ def smoke_gate(arms: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> N
                 smoke,
                 config.get("alpha"),
                 config.get("recommended", False),
+                dense_matrix=config.get("dense_matrix"),
             )
             if name != "bm25" and not any(item["retrieved"] for item in result):
                 raise RuntimeError("empty ranking")
@@ -488,11 +704,14 @@ def smoke_gate(arms: dict[str, dict[str, Any]], rows: list[dict[str, Any]]) -> N
             print(f"SMOKE FAIL {name}: {exc}", flush=True)
     if failures:
         raise RuntimeError("Phase 5 smoke gate failed: " + "; ".join(failures))
+    print(f"Smoke gate complete in {time.perf_counter() - started:.2f}s", flush=True)
 
 
 def select_alpha(
     config: dict[str, Any], dev_rows: list[dict[str, Any]], *, recommended: bool = False
 ) -> tuple[float, dict[float, float]]:
+    started = time.perf_counter()
+    print(f"Alpha selection start: {config['name']} ({len(dev_rows)} dev rows)", flush=True)
     scores = {}
     for alpha in (0.25, 0.5, 0.75):
         result = evaluate_arm(
@@ -504,10 +723,16 @@ def select_alpha(
             dev_rows,
             alpha,
             recommended=recommended,
+            dense_matrix=config.get("dense_matrix"),
         )
         values = [row["metrics"]["ndcg@10"] for row in result if "ndcg@10" in row["metrics"]]
         scores[alpha] = statistics.fmean(values) if values else 0.0
     selected = max(scores, key=lambda value: (scores[value], -value))
+    print(
+        f"Alpha selection complete: {config['name']} selected={selected} "
+        f"scores={scores} elapsed={time.perf_counter() - started:.2f}s",
+        flush=True,
+    )
     return selected, scores
 
 
@@ -605,23 +830,32 @@ def load_arm(
     connection: psycopg.Connection[Any],
     schema: str,
 ) -> dict[str, Any]:
+    started = time.perf_counter()
+    print(f"Loading arm {key}", flush=True)
     corpus_vectors, _ = load_vectors(output, key)
     query_vectors, _ = load_vectors(output, key, eval_queries=True)
     import_vectors(connection, schema, key, corpus_vectors)
-    return {
+    dense_matrix = build_dense_matrix(records, corpus_vectors)
+    result = {
         "name": key,
         "key": key,
         "corpus_vectors": corpus_vectors,
         "query_vectors": query_vectors,
+        "dense_matrix": dense_matrix,
         "chunks": chunks,
         "records": records,
     }
+    print(f"Loaded arm {key} in {time.perf_counter() - started:.2f}s", flush=True)
+    return result
 
 
 def comparison_rows(
     artifacts: dict[str, dict[str, list[dict[str, Any]]]], selection: dict[str, Any]
 ) -> list[dict[str, Any]]:
+    started = time.perf_counter()
+    print("Bootstrap comparisons start", flush=True)
     comparisons = []
+    completed = 0
     baselines = ("dense-bge-small", "hybrid-bm25-weighted-025", "recommended", "bm25")
     for left in sorted(artifacts):
         if left in baselines or "-seed-" in left:
@@ -636,10 +870,24 @@ def comparison_rows(
                     continue
                 value = paired_bootstrap(a, b, "ndcg@10", seed=42, samples=2000)
                 comparisons.append({"left": left, "right": right, "split": split, "delta": value})
+                completed += 1
+                print(
+                    f"Bootstrap comparisons: {completed} complete ({left} vs {right}, {split})",
+                    flush=True,
+                )
+    print(
+        f"Bootstrap comparisons complete: {completed} in "
+        f"{time.perf_counter() - started:.2f}s",
+        flush=True,
+    )
     return comparisons
 
 
 def run(args: argparse.Namespace) -> int:
+    run_started = time.perf_counter()
+    clear_phase5_rank_caches()
+    clear_bm25_index_cache()
+    print("Loading Phase 5 inputs and existing database vectors", flush=True)
     output = Path(args.outputs)
     if not output.is_dir():
         raise RuntimeError(
@@ -670,11 +918,13 @@ def run(args: argparse.Namespace) -> int:
         )
         base_vectors = load_base_vectors(connection, "bge-small-en-v1.5")
         import_vectors(connection, schema, "baseline-bge-small", base_vectors)
+        baseline_matrix = build_dense_matrix(records, base_vectors)
         contexts: dict[str, dict[str, Any]] = {
             "dense-bge-small": {
                 "name": "dense-bge-small",
                 "query_vectors": None,
                 "corpus_vectors": base_vectors,
+                "dense_matrix": baseline_matrix,
                 "chunks": chunks,
                 "records": records,
             },
@@ -715,6 +965,7 @@ def run(args: argparse.Namespace) -> int:
                 output, key, chunks, records, connection, schema
             )
             contexts[f"{base}-seed-{item['seed']}"]["name"] = f"{base}-seed-{item['seed']}"
+        print(f"Arm loading complete: {len(contexts)} contexts", flush=True)
     if len(gold) != 212:
         raise RuntimeError(f"expected 212 gold rows, found {len(gold)}")
 
@@ -739,11 +990,14 @@ def run(args: argparse.Namespace) -> int:
             )
             contexts[name]["selected_alpha"] = alpha
             selection["fine_tuned_alphas"][name] = {"selected": alpha, "dev": scores}
+    print("Fine-tuned alpha selection complete", flush=True)
     dense_names = [
         name for name in contexts if name.startswith("dense-") and name != "dense-bge-small"
     ]
     dev_dense_scores: dict[str, float] = {}
     for name in dense_names:
+        started = time.perf_counter()
+        print(f"Evaluating dev arm {name}", flush=True)
         rows = evaluate_arm(
             name,
             contexts[name]["query_vectors"],
@@ -751,18 +1005,23 @@ def run(args: argparse.Namespace) -> int:
             contexts[name]["chunks"],
             contexts[name]["records"],
             dev,
+            dense_matrix=contexts[name].get("dense_matrix"),
         )
         dev_dense_scores[name] = statistics.fmean(
             row["metrics"].get("ndcg@10", 0.0) for row in rows
         )
+        print(f"Completed dev arm {name} in {time.perf_counter() - started:.2f}s", flush=True)
     selection["best_untrained_dense"] = (
         max(dev_dense_scores, key=lambda name: dev_dense_scores[name])
         if dev_dense_scores
         else "dense-bge-small"
     )
+    print(f"Best untrained dense arm: {selection['best_untrained_dense']}", flush=True)
 
     artifacts: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(dict)
     for name, config in contexts.items():
+        started = time.perf_counter()
+        print(f"Evaluating arm {name}", flush=True)
         if name == "recommended":
             rows_dev = evaluate_arm(
                 name,
@@ -773,6 +1032,7 @@ def run(args: argparse.Namespace) -> int:
                 dev,
                 alpha=0.25,
                 recommended=True,
+                dense_matrix=config.get("dense_matrix"),
             )
             rows_test = evaluate_arm(
                 name,
@@ -783,6 +1043,7 @@ def run(args: argparse.Namespace) -> int:
                 test,
                 alpha=0.25,
                 recommended=True,
+                dense_matrix=config.get("dense_matrix"),
             )
         elif name == "bm25" or name.startswith("dense-"):
             rows_dev = evaluate_arm(
@@ -792,6 +1053,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 dev,
+                dense_matrix=config.get("dense_matrix"),
             )
             rows_test = evaluate_arm(
                 name,
@@ -800,6 +1062,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 test,
+                dense_matrix=config.get("dense_matrix"),
             )
         elif any(
             name == f"{base}-seed-{seed}"
@@ -813,6 +1076,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 dev,
+                dense_matrix=config.get("dense_matrix"),
             )
             rows_test = evaluate_arm(
                 name,
@@ -821,6 +1085,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 test,
+                dense_matrix=config.get("dense_matrix"),
             )
         else:
             alpha = config.get("selected_alpha", 0.5)
@@ -831,6 +1096,7 @@ def run(args: argparse.Namespace) -> int:
                 config["chunks"],
                 config["records"],
                 dev,
+                dense_matrix=config.get("dense_matrix"),
             )
             rows_test = evaluate_arm(
                 name,
@@ -840,14 +1106,17 @@ def run(args: argparse.Namespace) -> int:
                 config["records"],
                 test,
                 alpha=alpha,
+                dense_matrix=config.get("dense_matrix"),
             )
         for rows in (rows_dev, rows_test):
             guard_nonzero_scores(rows, system=name)
         artifacts[name] = {"dev": rows_dev, "test": rows_test}
+        print(f"Completed arm {name} in {time.perf_counter() - started:.2f}s", flush=True)
 
     # Aggregate fine-tuned seeds per question.  Keep the unaggregated rows only
     # for the seed-specific compatibility summary.
     seed_artifacts: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    print("Aggregating fine-tuned seed artifacts", flush=True)
     for base, expected_seeds in fine_seed_groups.items():
         seed_numbers = [seed for seed in expected_seeds if f"{base}-seed-{seed}" in artifacts]
         if len(seed_numbers) != len(expected_seeds):
@@ -877,6 +1146,7 @@ def run(args: argparse.Namespace) -> int:
                             [row for row in (dev if split == "dev" else test)],
                             alpha=alpha,
                             recommended=mode == "recommended",
+                            dense_matrix=context.get("dense_matrix"),
                         )
                     merged.extend({**row, "seed": seed} for row in selected)
                 raw_by_split[split] = merged
@@ -895,6 +1165,7 @@ def run(args: argparse.Namespace) -> int:
             best_context["records"],
             dev if split == "dev" else test,
             alpha=0.5,
+            dense_matrix=best_context.get("dense_matrix"),
         )
         for split in ("dev", "test")
     }
@@ -908,23 +1179,28 @@ def run(args: argparse.Namespace) -> int:
             baseline["records"],
             dev if split == "dev" else test,
             alpha=0.25,
+            dense_matrix=baseline.get("dense_matrix"),
         )
         for split in ("dev", "test")
     }
 
-    summaries = [
-        {
-            "arm": name,
-            "split": split,
-            "summary": summarize(rows),
-            "seed_summary": seed_summary(seed_artifacts[name][split])
-            if name in seed_artifacts
-            else {},
-            "breakdown": breakdown(rows),
-        }
-        for name, values in sorted(artifacts.items())
-        for split, rows in values.items()
-    ]
+    summaries = []
+    print("Summary/bootstrap stage start", flush=True)
+    for name, values in sorted(artifacts.items()):
+        for split, rows in values.items():
+            started = time.perf_counter()
+            summaries.append({
+                "arm": name,
+                "split": split,
+                "summary": summarize(rows),
+                "seed_summary": seed_summary(seed_artifacts[name][split])
+                if name in seed_artifacts else {},
+                "breakdown": breakdown(rows),
+            })
+            print(
+                f"Summary {name}/{split} in {time.perf_counter() - started:.2f}s", flush=True
+            )
+    print(f"Summary/bootstrap stage complete: {len(summaries)} summaries", flush=True)
     result = {
         "phase": 5,
         "source": "results only",
@@ -942,6 +1218,9 @@ def run(args: argparse.Namespace) -> int:
         findings(result_for_reports), encoding="utf-8"
     )
     print(f"Wrote {results_dir / 'phase5_table.md'} and docs/phase5_findings.md", flush=True)
+    print(
+        f"Phase 5 host evaluation complete in {time.perf_counter() - run_started:.2f}s", flush=True
+    )
     return 0
 
 

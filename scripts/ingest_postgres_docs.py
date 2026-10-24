@@ -7,12 +7,14 @@ import argparse
 import json
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Literal, cast
 
 from psycopg.conninfo import conninfo_to_dict
 
 from rag_service.benchmark.corpus import load_source_records, parse_postgresql_source
-from rag_service.domain import DocumentIdentity, DocumentSection, SourceLocation
+from rag_service.domain import Chunk, DocumentIdentity, DocumentSection, SourceLocation
 from rag_service.ingestion.chunking import DeterministicChunker
 from rag_service.retrieval.encoders import Bm25SparseEncoder
 from rag_service.retrieval.local_models import SentenceTransformerEncoder
@@ -26,15 +28,15 @@ class TimingEmbedder:
         self.encoder = encoder
         self.total_seconds = 0.0
 
-    def embed(self, texts: tuple[str, ...]) -> tuple[tuple[float, ...], ...]:
+    def embed(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
         start = time.perf_counter()
         values = self.encoder.embed(texts)
         self.total_seconds += time.perf_counter() - start
         return values
 
-    def embed_chunks(self, chunks: tuple[object, ...]) -> tuple[tuple[float, ...], ...]:
+    def embed_chunks(self, chunks: Sequence[Chunk]) -> Sequence[Sequence[float]]:
         start = time.perf_counter()
-        values = self.encoder.embed_chunks(chunks)  # type: ignore[arg-type]
+        values = self.encoder.embed_chunks(chunks)
         self.total_seconds += time.perf_counter() - start
         return values
 
@@ -97,7 +99,7 @@ def main() -> int:
         batch_size=64,
     )
     store.migrate()
-    metrics: dict[str, object] = {
+    metrics: dict[str, Any] = {
         "embedder": "bge-small-en-v1.5",
         "database": conninfo_to_dict(args.database_url).get("dbname"),
     }
@@ -113,7 +115,7 @@ def main() -> int:
                 # source blocks with identical text for storage keys.
                 section_id=record.lineage_key,
                 lineage_key=record.lineage_key,
-                kind=record.kind,
+                 kind=cast(Literal["text", "table", "code"], record.kind),
                 metadata={**record.metadata, "display_title": record.title,
                           "table_caption": record.caption},
                 source=SourceLocation(
