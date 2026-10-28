@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import jwt
 import pytest
 
 from rag_service.application import RagApplication
@@ -55,11 +57,18 @@ async def test_json_sse_verified_claims_and_cache_isolation(
     application = RagApplication(None, retriever, generator, verify_generation=True)
     settings = Settings()
     app = api.create_app(application, settings)
+    now = int(time.time())
+    token = jwt.encode(
+        {"sub": "alice", "groups": [], "roles": ["reader"], "iat": now, "exp": now + 300},
+        settings.jwt_secret,
+        algorithm="HS256",
+    )
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                  base_url="http://local") as client:
-        payload = {"query": request().query, "product_version": "pg-16", "principal": "alice"}
-        json_response = (await client.post("/v1/query", json=payload)).json()
-        stream_response = await client.post("/v1/query/stream", json=payload)
+        payload = {"query": request().query, "product_version": "pg-16", "principal": "mallory"}
+        headers = {"Authorization": f"Bearer {token}"}
+        json_response = (await client.post("/v1/query", json=payload, headers=headers)).json()
+        stream_response = await client.post("/v1/query/stream", json=payload, headers=headers)
     data = [line[6:] for line in stream_response.text.splitlines() if line.startswith("data: ")]
     metadata = json.loads(data[0])
     assert metadata["claims"] == json_response["claims"]

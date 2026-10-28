@@ -90,7 +90,12 @@ class IngestionPipeline:
             version_label = effective_hash
 
         cache_key = (document_id, version_label, effective_hash)
-        if self.cache_results and skip_unchanged and cache_key in self._results:
+        if (
+            self.cache_results
+            and skip_unchanged
+            and cache_key in self._results
+            and self._results[cache_key].access_policy == effective_policy
+        ):
             return replace(self._results[cache_key], already_ingested=True)
 
         chunks = self.chunker.chunk(
@@ -202,9 +207,7 @@ class IngestionPipeline:
             return None, None
         if isinstance(version, DocumentVersion):
             if version.document_id != document_id:
-                raise ValueError(
-                    "DocumentVersion.document_id does not match the document identity"
-                )
+                raise ValueError("DocumentVersion.document_id does not match the document identity")
             return version.version, version.content_hash
         if isinstance(version, str):
             if not version.strip():
@@ -216,8 +219,10 @@ class IngestionPipeline:
         if self.embedder is None or not chunks:
             return ()
         embed_chunks = getattr(self.embedder, "embed_chunks", None)
-        values = embed_chunks(chunks) if embed_chunks is not None else self.embedder.embed(
-            tuple(chunk.text for chunk in chunks)
+        values = (
+            embed_chunks(chunks)
+            if embed_chunks is not None
+            else self.embedder.embed(tuple(chunk.text for chunk in chunks))
         )
         vectors = tuple(tuple(float(value) for value in vector) for vector in values)
         self._validate_vector_count("dense", len(chunks), len(vectors))
@@ -239,9 +244,7 @@ class IngestionPipeline:
     @staticmethod
     def _validate_vector_count(kind: str, expected: int, actual: int) -> None:
         if expected != actual:
-            raise ValueError(
-                f"{kind} encoder returned {actual} vectors for {expected} chunks"
-            )
+            raise ValueError(f"{kind} encoder returned {actual} vectors for {expected} chunks")
 
     def _write(
         self,

@@ -66,12 +66,16 @@ def build_application(settings: Settings | None = None) -> RagApplication:
             embedder_id=embedder_id,
             batch_size=settings.embedding_batch_size,
             migrations_path=settings.migrations_path,
+            connect_timeout_seconds=settings.database_connect_timeout_seconds,
+            statement_timeout_ms=settings.database_statement_timeout_ms,
         )
         pipeline.migrate()
         index = PostgresHybridIndex(
             settings.database_url,
             embedder_id=embedder_id,
             migrations_path=settings.migrations_path,
+            connect_timeout_seconds=settings.database_connect_timeout_seconds,
+            statement_timeout_ms=settings.database_statement_timeout_ms,
         )
     else:
         index = InMemoryHybridIndex()
@@ -110,7 +114,7 @@ def build_application(settings: Settings | None = None) -> RagApplication:
         retriever,
         generator,
         max_context_chars=settings.max_context_chars,
-        verify_generation=settings.generation_backend == "deepseek-flash",
+        verify_generation=True,
         abstention_threshold=threshold,
     )
 

@@ -93,10 +93,10 @@ class RagApplication:
             query=query,
             matches=result.matches,
             max_context_chars=self.max_context_chars,
-            filters=filters or RetrievalFilters(),
-            answered_version=(filters.product_version if filters else None) or (
+            filters=result.scope.filters,
+            answered_version=(result.scope.filters.product_version or (
                 result.scope.versions[0] if len(result.scope.versions) == 1 else None
-            ),
+            )),
             scope_status=result.scope.status,
         )
         request = authorized_request(request)

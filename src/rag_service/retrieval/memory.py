@@ -35,6 +35,14 @@ class InMemoryHybridIndex:
     def count(self) -> int:
         return len(self._records)
 
+    @property
+    def public_count(self) -> int:
+        """Count only public records for the unauthenticated health endpoint."""
+        return sum(
+            record.chunk.access_policy is None or record.chunk.access_policy.is_public
+            for record in self._records.values()
+        )
+
     def upsert(
         self,
         chunks: Sequence[Chunk],
@@ -89,9 +97,7 @@ class InMemoryHybridIndex:
         query_dense = tuple(float(value) for value in dense_vector)
         query_sparse = {str(key): float(value) for key, value in sparse_vector.items()}
         eligible = [
-            record
-            for record in self._records.values()
-            if self._matches(record.chunk, filters)
+            record for record in self._records.values() if self._matches(record.chunk, filters)
         ]
         if not eligible:
             return ()
@@ -170,44 +176,67 @@ class InMemoryHybridIndex:
                 values.setdefault(record.chunk.document_id, set()).add(record.chunk.version)
         return {key: tuple(sorted(versions)) for key, versions in values.items()}
 
-    def dense_search(self, vector: Sequence[float], *, top_k: int,
-                     filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
-        values = [ScoredChunk(r.chunk, dense_score=self._cosine(vector, r.dense_vector))
-                  for r in self._records.values() if self._matches(r.chunk, filters)]
+    def dense_search(
+        self, vector: Sequence[float], *, top_k: int, filters: RetrievalFilters
+    ) -> tuple[ScoredChunk, ...]:
+        values = [
+            ScoredChunk(r.chunk, dense_score=self._cosine(vector, r.dense_vector))
+            for r in self._records.values()
+            if self._matches(r.chunk, filters)
+        ]
         return tuple(sorted(values, key=lambda v: (-v.dense_score, v.chunk.chunk_id))[:top_k])
 
-    def sparse_search(self, query: str, *, top_k: int, filters: RetrievalFilters,
-                      method: str = "bm25", identifiers: bool = True) -> tuple[ScoredChunk, ...]:
+    def sparse_search(
+        self,
+        query: str,
+        *,
+        top_k: int,
+        filters: RetrievalFilters,
+        method: str = "bm25",
+        identifiers: bool = True,
+    ) -> tuple[ScoredChunk, ...]:
         from .bm25 import bm25_search
 
         if method != "bm25":
             raise ValueError("Postgres full-text search requires the postgres backend")
-        return bm25_search(query, [r.chunk for r in self._records.values()
-                                   if self._matches(r.chunk, filters)], top_k)
+        return bm25_search(
+            query,
+            [r.chunk for r in self._records.values() if self._matches(r.chunk, filters)],
+            top_k,
+        )
 
-    def expand_parents(self, matches: Sequence[ScoredChunk], *,
-                       filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
-        by_id = {record.chunk.chunk_id: record.chunk for record in self._records.values()
-                 if self._matches(record.chunk, filters)}
+    def expand_parents(
+        self, matches: Sequence[ScoredChunk], *, filters: RetrievalFilters
+    ) -> tuple[ScoredChunk, ...]:
+        by_id = {
+            record.chunk.chunk_id: record.chunk
+            for record in self._records.values()
+            if self._matches(record.chunk, filters)
+        }
         result: list[ScoredChunk] = []
         seen: set[str] = set()
         for match in matches:
+            if not self._matches(match.chunk, filters):
+                continue
             if match.chunk.chunk_id not in seen:
                 result.append(match)
                 seen.add(match.chunk.chunk_id)
             parent = by_id.get(match.chunk.parent_id or "")
             if parent is not None and parent.chunk_id not in seen:
-                result.append(ScoredChunk(
-                    parent,
-                    dense_score=match.dense_score,
-                    sparse_score=match.sparse_score,
-                    hybrid_score=match.hybrid_score * 0.95,
-                ))
+                result.append(
+                    ScoredChunk(
+                        parent,
+                        dense_score=match.dense_score,
+                        sparse_score=match.sparse_score,
+                        hybrid_score=match.hybrid_score * 0.95,
+                    )
+                )
                 seen.add(parent.chunk_id)
         return tuple(result)
 
-    def save_trace(self, trace_id: str, query: str, filters: RetrievalFilters,
-                   stages: Sequence[dict[str, Any]]) -> None:
+    def save_trace(
+        self, trace_id: str, query: str, filters: RetrievalFilters, stages: Sequence[dict[str, Any]]
+    ) -> None:
         self.traces[trace_id] = {
             "query": query,
             "requester": filters.principal,

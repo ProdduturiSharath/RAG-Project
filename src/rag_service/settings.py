@@ -123,6 +123,67 @@ class Settings(BaseSettings):
         default="extractive",
         validation_alias=AliasChoices("RAG_GENERATION_BACKEND", "generation_backend"),
     )
+    jwt_secret: str = Field(
+        default="phase7-local-development-secret-32bytes!",
+        min_length=32,
+        validation_alias=AliasChoices("RAG_JWT_SECRET", "jwt_secret"),
+    )
+    jwt_algorithm: Literal["HS256"] = Field(
+        default="HS256",
+        validation_alias=AliasChoices("RAG_JWT_ALGORITHM", "jwt_algorithm"),
+    )
+    max_request_body_bytes: int = Field(
+        default=262_144,
+        validation_alias=AliasChoices("RAG_MAX_REQUEST_BODY_BYTES", "max_request_body_bytes"),
+    )
+    max_query_chars: int = Field(
+        default=4_096,
+        validation_alias=AliasChoices("RAG_MAX_QUERY_CHARS", "max_query_chars"),
+    )
+    max_document_chars: int = Field(
+        default=200_000,
+        validation_alias=AliasChoices("RAG_MAX_DOCUMENT_CHARS", "max_document_chars"),
+    )
+    max_section_chars: int = Field(
+        default=50_000,
+        validation_alias=AliasChoices("RAG_MAX_SECTION_CHARS", "max_section_chars"),
+    )
+    max_sections: int = Field(
+        default=100,
+        validation_alias=AliasChoices("RAG_MAX_SECTIONS", "max_sections"),
+    )
+    max_metadata_keys: int = Field(
+        default=50,
+        validation_alias=AliasChoices("RAG_MAX_METADATA_KEYS", "max_metadata_keys"),
+    )
+    max_metadata_depth: int = Field(
+        default=4,
+        validation_alias=AliasChoices("RAG_MAX_METADATA_DEPTH", "max_metadata_depth"),
+    )
+    rate_limit_requests: int = Field(
+        default=60,
+        validation_alias=AliasChoices("RAG_RATE_LIMIT_REQUESTS", "rate_limit_requests"),
+    )
+    rate_limit_window_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("RAG_RATE_LIMIT_WINDOW_SECONDS", "rate_limit_window_seconds"),
+    )
+    request_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("RAG_REQUEST_TIMEOUT_SECONDS", "request_timeout_seconds"),
+    )
+    database_connect_timeout_seconds: int = Field(
+        default=5,
+        validation_alias=AliasChoices(
+            "RAG_DATABASE_CONNECT_TIMEOUT_SECONDS", "database_connect_timeout_seconds"
+        ),
+    )
+    database_statement_timeout_ms: int = Field(
+        default=30_000,
+        validation_alias=AliasChoices(
+            "RAG_DATABASE_STATEMENT_TIMEOUT_MS", "database_statement_timeout_ms"
+        ),
+    )
 
     @field_validator("log_level")
     @classmethod
@@ -149,6 +210,20 @@ class Settings(BaseSettings):
             raise ValueError("embedding_batch_size must be positive")
         if self.job_poll_seconds <= 0:
             raise ValueError("job_poll_seconds must be positive")
+        if len(self.jwt_secret.encode("utf-8")) < 32:
+            raise ValueError("jwt_secret must be at least 32 UTF-8 bytes")
+        if self.max_request_body_bytes < 1 or self.max_query_chars < 1:
+            raise ValueError("request and query limits must be positive")
+        if self.max_document_chars < 1 or self.max_section_chars < 1:
+            raise ValueError("document and section limits must be positive")
+        if self.max_sections < 1 or self.max_metadata_keys < 1 or self.max_metadata_depth < 1:
+            raise ValueError("document structure limits must be positive")
+        if self.rate_limit_requests < 1 or self.rate_limit_window_seconds <= 0:
+            raise ValueError("rate limit settings must be positive")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
+        if self.database_connect_timeout_seconds <= 0 or self.database_statement_timeout_ms <= 0:
+            raise ValueError("database timeout settings must be positive")
         return self
 
     @classmethod
