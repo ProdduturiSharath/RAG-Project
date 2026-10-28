@@ -1,0 +1,193 @@
+{
+  "calibration": {
+    "extractive": {
+      "balanced_abstention_accuracy": 0.7393617021276596,
+      "grid": [
+        {
+          "balanced_abstention_accuracy": 0.7393617021276596,
+          "threshold": 0.0
+        },
+        {
+          "balanced_abstention_accuracy": 0.7393617021276596,
+          "threshold": 0.05
+        },
+        {
+          "balanced_abstention_accuracy": 0.7393617021276596,
+          "threshold": 0.1
+        },
+        {
+          "balanced_abstention_accuracy": 0.7393617021276596,
+          "threshold": 0.15
+        },
+        {
+          "balanced_abstention_accuracy": 0.7393617021276596,
+          "threshold": 0.2
+        },
+        {
+          "balanced_abstention_accuracy": 0.7340425531914894,
+          "threshold": 0.25
+        },
+        {
+          "balanced_abstention_accuracy": 0.7340425531914894,
+          "threshold": 0.3
+        },
+        {
+          "balanced_abstention_accuracy": 0.7340425531914894,
+          "threshold": 0.35
+        },
+        {
+          "balanced_abstention_accuracy": 0.7340425531914894,
+          "threshold": 0.4
+        },
+        {
+          "balanced_abstention_accuracy": 0.7287234042553191,
+          "threshold": 0.45
+        },
+        {
+          "balanced_abstention_accuracy": 0.7234042553191489,
+          "threshold": 0.5
+        },
+        {
+          "balanced_abstention_accuracy": 0.7180851063829787,
+          "threshold": 0.55
+        },
+        {
+          "balanced_abstention_accuracy": 0.7074468085106382,
+          "threshold": 0.6
+        },
+        {
+          "balanced_abstention_accuracy": 0.6968085106382979,
+          "threshold": 0.65
+        },
+        {
+          "balanced_abstention_accuracy": 0.675531914893617,
+          "threshold": 0.7
+        },
+        {
+          "balanced_abstention_accuracy": 0.6382978723404256,
+          "threshold": 0.75
+        },
+        {
+          "balanced_abstention_accuracy": 0.6117021276595744,
+          "threshold": 0.8
+        },
+        {
+          "balanced_abstention_accuracy": 0.5957446808510638,
+          "threshold": 0.85
+        },
+        {
+          "balanced_abstention_accuracy": 0.5425531914893617,
+          "threshold": 0.9
+        },
+        {
+          "balanced_abstention_accuracy": 0.5319148936170213,
+          "threshold": 0.95
+        },
+        {
+          "balanced_abstention_accuracy": 0.5,
+          "threshold": 1.0
+        }
+      ],
+      "objective": "balanced answerable/should-abstain decision accuracy; lowest tie threshold",
+      "rows": 115,
+      "split": "dev",
+      "threshold": 0.0
+    },
+    "llm": {
+      "balanced_abstention_accuracy": 0.7659574468085106,
+      "grid": [
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.0
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.05
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.1
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.15
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.2
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.25
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.3
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.35
+        },
+        {
+          "balanced_abstention_accuracy": 0.7659574468085106,
+          "threshold": 0.4
+        },
+        {
+          "balanced_abstention_accuracy": 0.7606382978723405,
+          "threshold": 0.45
+        },
+        {
+          "balanced_abstention_accuracy": 0.7606382978723405,
+          "threshold": 0.5
+        },
+        {
+          "balanced_abstention_accuracy": 0.7553191489361701,
+          "threshold": 0.55
+        },
+        {
+          "balanced_abstention_accuracy": 0.7446808510638298,
+          "threshold": 0.6
+        },
+        {
+          "balanced_abstention_accuracy": 0.7446808510638298,
+          "threshold": 0.65
+        },
+        {
+          "balanced_abstention_accuracy": 0.7127659574468085,
+          "threshold": 0.7
+        },
+        {
+          "balanced_abstention_accuracy": 0.6648936170212766,
+          "threshold": 0.75
+        },
+        {
+          "balanced_abstention_accuracy": 0.6276595744680851,
+          "threshold": 0.8
+        },
+        {
+          "balanced_abstention_accuracy": 0.6117021276595744,
+          "threshold": 0.85
+        },
+        {
+          "balanced_abstention_accuracy": 0.5691489361702128,
+          "threshold": 0.9
+        },
+        {
+          "balanced_abstention_accuracy": 0.5585106382978724,
+          "threshold": 0.95
+        },
+        {
+          "balanced_abstention_accuracy": 0.5,
+          "threshold": 1.0
+        }
+      ],
+      "objective": "balanced answerable/should-abstain decision accuracy; lowest tie threshold",
+      "rows": 115,
+      "split": "dev",
+      "threshold": 0.0
+    }
+  },
+  "gold_hash": "45d4fae4d1d6e0b2c983abc06f72519b5fea5a39c01bb39377022ec25240c207",
+  "model": "deepseek-flash",
+  "prompt_hash": "0683e492a94fb4ec20dcd3cc76a2f0cbda7aa9aada271377d3037431ac980f44"
+}

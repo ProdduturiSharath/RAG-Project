@@ -7,10 +7,17 @@ use cases and HTTP contract remain unchanged.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from rag_service.application import RagApplication
-from rag_service.generation import ExtractiveAnswerGenerator
+from rag_service.generation import (
+    AnswerGenerator,
+    ExtractiveAnswerGenerator,
+    OpenAICompatibleGenerator,
+)
+from rag_service.generation.openai_compatible import deepseek_key
 from rag_service.ingestion import ChunkingConfig, DeterministicChunker, IngestionPipeline
 from rag_service.retrieval import (
     Bm25SparseEncoder,
@@ -91,12 +98,20 @@ def build_application(settings: Settings | None = None) -> RagApplication:
             parent_expansion=settings.parent_expansion,
         ),
     )
-    generator = ExtractiveAnswerGenerator()
+    generator: AnswerGenerator = ExtractiveAnswerGenerator()
+    threshold = 0.0
+    if settings.generation_backend == "deepseek-flash":
+        calibration_path = Path(__file__).resolve().parents[3] / "configs/phase6_calibration.json"
+        calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+        threshold = float(calibration["calibration"]["llm"]["threshold"])
+        generator = OpenAICompatibleGenerator(api_key=deepseek_key(), verified=False)
     return RagApplication(
         pipeline,
         retriever,
         generator,
         max_context_chars=settings.max_context_chars,
+        verify_generation=settings.generation_backend == "deepseek-flash",
+        abstention_threshold=threshold,
     )
 
 
