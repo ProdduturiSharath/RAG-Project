@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 
 
 class SourcePayload(BaseModel):
-    uri: str = ""
-    path: str | None = None
+    uri: str = Field(default="", max_length=2048)
+    path: str | None = Field(default=None, max_length=2048)
     page_number: int | None = Field(default=None, ge=1)
     fragment: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -17,32 +17,32 @@ class SourcePayload(BaseModel):
 
 class AccessPolicyPayload(BaseModel):
     public: bool = False
-    principals: list[str] = Field(default_factory=list)
-    groups: list[str] = Field(default_factory=list)
+    principals: list[str] = Field(default_factory=list, max_length=100)
+    groups: list[str] = Field(default_factory=list, max_length=100)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SectionPayload(BaseModel):
-    text: str = ""
-    heading: str | None = None
+    text: str = Field(default="", max_length=50_000)
+    heading: str | None = Field(default=None, max_length=2048)
     level: int = Field(default=0, ge=0)
-    section_path: list[str] = Field(default_factory=list)
+    section_path: list[str] = Field(default_factory=list, max_length=32)
     page_number: int | None = Field(default=None, ge=1)
     page_metadata: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    section_id: str | None = None
-    parent_section_id: str | None = None
+    section_id: str | None = Field(default=None, max_length=512)
+    parent_section_id: str | None = Field(default=None, max_length=512)
 
 
 class IngestDocumentRequest(BaseModel):
-    document_id: str = Field(min_length=1)
-    title: str | None = None
-    version: str | None = None
-    content_hash: str | None = None
+    document_id: str = Field(min_length=1, max_length=512)
+    title: str | None = Field(default=None, max_length=2048)
+    version: str | None = Field(default=None, max_length=256)
+    content_hash: str | None = Field(default=None, max_length=256)
     source: SourcePayload | None = None
     access_policy: AccessPolicyPayload | None = None
-    sections: list[SectionPayload] = Field(default_factory=list)
-    text: str | None = None
+    sections: list[SectionPayload] = Field(default_factory=list, max_length=100)
+    text: str | None = Field(default=None, max_length=200_000)
 
 
 class IngestDocumentResponse(BaseModel):
@@ -56,14 +56,15 @@ class IngestDocumentResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=4_096)
     top_k: int | None = Field(default=None, ge=1, le=20)
     candidate_k: int | None = Field(default=None, ge=1, le=100)
     alpha: float | None = Field(default=None, ge=0, le=1)
-    document_ids: list[str] = Field(default_factory=list)
-    principal: str | None = None
-    groups: list[str] = Field(default_factory=list)
-    product_version: str | None = None
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
+    # These legacy fields are ignored at the HTTP boundary; verified JWT claims win.
+    principal: str | None = Field(default=None, max_length=512)
+    groups: list[str] = Field(default_factory=list, max_length=100)
+    product_version: str | None = Field(default=None, max_length=256)
     version_mode: Literal["none", "explicit", "auto"] | None = None
     version_selector: Literal["exact", "latest", "all"] = "exact"
     metadata: dict[str, Any] = Field(default_factory=dict)

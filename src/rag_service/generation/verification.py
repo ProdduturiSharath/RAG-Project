@@ -9,7 +9,7 @@ from typing import Any
 from rag_service.retrieval.models import Citation
 
 from .models import Claim, GeneratedAnswer, GenerationRequest
-from .prompting import authorized_request
+from .prompting import authorized_request, contains_prompt_injection
 
 STOPWORDS = frozenset(
     "a an the is are was were be to of in on for and or as by with it its "
@@ -42,6 +42,8 @@ def quote_valid(citation: Citation, request: GenerationRequest) -> bool:
         and citation.version == chunk.version
         and citation.section_path == chunk.section_path
         and bool(citation.excerpt.strip())
+        and not contains_prompt_injection(citation.excerpt)
+        and not any(contains_prompt_injection(part) for part in citation.section_path)
         and citation.excerpt in chunk.text
         for chunk in (match.chunk for match in authorized_request(request).matches)
     )
@@ -77,7 +79,12 @@ def annotate(answer: GeneratedAnswer, request: GenerationRequest) -> GeneratedAn
     for claim in decompose(answer):
         valid = tuple(c for c in claim.citations if quote_valid(c, request))
         score = lexical_support(claim.text, " ".join(c.excerpt for c in valid))
-        supported = bool(valid) and len(valid) == len(claim.citations) and score >= 0.65
+        supported = (
+            bool(valid)
+            and len(valid) == len(claim.citations)
+            and score >= 0.65
+            and not contains_prompt_injection(claim.text)
+        )
         claims.append(
             replace(
                 claim,

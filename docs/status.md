@@ -705,3 +705,58 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
 - Verification: full offline suite **248 passed, 16 skipped**; `ruff check .`,
   full `mypy .` (113 source files), wrapper shell syntax and `git diff --check`
   passed. Phase 6 changes remain uncommitted on `phase-6-generation`.
+
+## Phase 7 lean security / study pre-audit — 2026-10-28
+
+- Added strict HS256 JWT authentication with required `sub`, `iat`, and `exp`,
+  validated optional `groups`, `roles`, and `scope`, a 32-byte minimum secret,
+  and verified-claims-only principal/group derivation. Health remains public;
+  query, stream, document mutation, and job routes are protected. Mutation and
+  job routes require `admin`, `ingest`, or `ingestion` role/scope.
+- Query-body `principal` and `groups` are ignored at the HTTP boundary, preventing
+  identity spoofing while retaining ingestion ACL payloads for administrators.
+  Unauthorized restricted queries return normal HTTP 200 `not found` responses;
+  scope versions, candidate traces, matches, citations, claims, and SSE metadata
+  are derived only from authorized active evidence.
+- Hardened memory/Postgres parent expansion, explicit-version scope reporting,
+  public-provider boundary checks, and the in-memory ingestion cache so ACL
+  grants/revocations and version deletion take effect immediately.
+- Added configurable body/query/document/section/metadata limits, sliding-window
+  principal/IP rate limiting with `Retry-After`, API request timeouts, and
+  PostgreSQL connection plus statement timeouts.
+- Added deterministic prompt-injection sanitization for query/passage/section/
+  metadata values and verification guards for instruction-shaped claims, fake
+  citation identities, and cross-version citations. The local benchmark covers
+  six attacks across extractive and deterministic unverified-LLM outputs.
+- Added Hypothesis properties for authorization soundness, group monotonicity,
+  ACL revocation, and version deletion for the memory adapter and provisioned
+  Postgres adapter path. The live closeout suite ran the Postgres paths against
+  `evidence_rag_eval`; only the destructive migration-reset test is limited to a
+  disposable database.
+- `bash scripts/phase7_eval.sh` completed at $0 API cost. Prompt benchmark:
+  deterministic-LLM attack success **1.000 → 0.000**, claim survival **1.000 →
+  0.000**, citation-spoof survival **0.667 → 0.000**; extractive citation-spoof
+  survival **0.333 → 0.000**.
+- Study A created an isolated schema with enabled/forced RLS and a `NOBYPASSRLS`
+  role under `SET LOCAL ROLE`, comparing p50/p95 with application ACL SQL. It
+  measured zero ACL leakage for `alice`, `bob`+`sre`, and `mallory`. Study B used
+  pgvector 0.8.7 HNSW with `ef_search=40`, a selective `pg-17` + `Functions and
+  Operators` filter covering **383/20,756 (1.84%)** rows, and out-of-scope query
+  vectors; HNSW was confirmed in the plan and both iterative modes reached
+  recall@10 1.000 against exact ground truth.
+- The initial no-listener result was caused by Docker being off; once the existing
+  PostgreSQL environment was accessible, both studies were rerun against the
+  configured database. The public corpus was reset by the intentionally destructive
+  migration test before that test was guarded; Study B therefore used the preserved
+  Phase 4 snapshot plus Phase 5 baseline vector artifact in the same database. No
+  provider calls or paid API calls were made.
+- Fixed the three audit findings: RLS/App leakage now render numeric zero counts;
+  Study B uses an explicit <10% selective filter and `ef_search=40`; and live
+  Postgres integration/Hypothesis paths execute through the configured eval DB
+  without allowing the destructive reset test to touch it.
+- Deliverables: `results/phase7_results.json`, `results/phase7_table.md`,
+  `docs/phase7_findings.md`, `scripts/phase7_eval.py`, and
+  `scripts/phase7_eval.sh`.
+- Verification: live database suite **281 passed, 1 skipped**; `ruff check .`,
+  full `mypy .` (119 source files), `git diff --check`, and the Phase 7 wrapper
+  completed.

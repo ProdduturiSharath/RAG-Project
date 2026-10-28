@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 from uuid import uuid4
 
@@ -17,6 +18,8 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
         self.database.migrate()
 
     def test_migrations_apply_to_an_empty_database(self) -> None:
+        if os.getenv("RAG_TEST_DATABASE_URL") is None:
+            self.skipTest("destructive migration test requires a disposable database")
         with self.database.connect() as connection:
             connection.execute("DROP SCHEMA public CASCADE")
             connection.execute("CREATE SCHEMA public")
@@ -60,12 +63,14 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
             ).fetchall()
             indexes = connection.execute(
                 "SELECT indexname FROM pg_indexes WHERE indexname = ANY(%s)",
-                ([
-                    "document_versions_one_active",
-                    "chunks_search_vector_gin",
-                    "chunks_identifier_vector_gin",
-                    "embeddings_hnsw_384_cosine",
-                ],),
+                (
+                    [
+                        "document_versions_one_active",
+                        "chunks_search_vector_gin",
+                        "chunks_identifier_vector_gin",
+                        "embeddings_hnsw_384_cosine",
+                    ],
+                ),
             ).fetchall()
             settings = connection.execute(
                 """

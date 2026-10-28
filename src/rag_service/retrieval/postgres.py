@@ -38,14 +38,19 @@ def _query_terms(value: str) -> tuple[str, ...]:
 
 def _ignored_sparse_term(term: str) -> bool:
     return bool(
-        term in _SPARSE_IGNORED_TERMS or term in _QUESTION_STOPWORDS
+        term in _SPARSE_IGNORED_TERMS
+        or term in _QUESTION_STOPWORDS
         or term.isdigit()
         or re.fullmatch(r"(?:pg|postgresql|v)[-_.]?\d+(?:[-_.]\d+)*", term)
     )
 
 
-def _keep_sparse_term(term: str, document_frequencies: Mapping[str, int],
-                      document_count: int, max_document_share: float) -> bool:
+def _keep_sparse_term(
+    term: str,
+    document_frequencies: Mapping[str, int],
+    document_count: int,
+    max_document_share: float,
+) -> bool:
     if _ignored_sparse_term(term):
         return False
     # Compound spellings are identifier evidence even when a component such as
@@ -71,8 +76,7 @@ def _filtered_sparse_query_texts(
     def kept(terms: Sequence[str]) -> list[str]:
         output: list[str] = []
         for term in terms:
-            if _keep_sparse_term(term, document_frequencies, document_count,
-                                 max_document_share):
+            if _keep_sparse_term(term, document_frequencies, document_count, max_document_share):
                 output.append(term)
             else:
                 dropped.append(term)
@@ -133,8 +137,15 @@ class PostgresHybridIndex:
         *,
         embedder_id: str = "hash-v1",
         migrations_path: str = "migrations",
+        connect_timeout_seconds: int = 5,
+        statement_timeout_ms: int = 30_000,
     ) -> None:
-        self.database = PostgresDatabase(database_url, migrations_path)
+        self.database = PostgresDatabase(
+            database_url,
+            migrations_path,
+            connect_timeout_seconds=connect_timeout_seconds,
+            statement_timeout_ms=statement_timeout_ms,
+        )
         self.embedder_id = embedder_id
 
     @property
@@ -145,13 +156,31 @@ class PostgresHybridIndex:
             assert row is not None
             return int(row["count"])
 
+    @property
+    def public_count(self) -> int:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT count(*) AS count FROM chunks c
+                JOIN document_versions v ON v.id=c.document_version_id
+                WHERE v.status='active' AND EXISTS (
+                    SELECT 1 FROM acl a WHERE a.document_version_id=v.id AND a.is_public)"""
+            ).fetchone()
+            assert row is not None
+            return int(row["count"])
+
     def search(
-        self, dense_vector: Sequence[float], sparse_vector: Mapping[str, float], *,
-        top_k: int, alpha: float, filters: RetrievalFilters | None = None,
+        self,
+        dense_vector: Sequence[float],
+        sparse_vector: Mapping[str, float],
+        *,
+        top_k: int,
+        alpha: float,
+        filters: RetrievalFilters | None = None,
     ) -> tuple[ScoredChunk, ...]:
         filters = filters or RetrievalFilters()
         with self.database.connect() as conn:
-            rows = conn.execute("""SELECT c.payload, e.embedding::text, e.sparse_vector
+            rows = conn.execute(
+                """SELECT c.payload, e.embedding::text, e.sparse_vector
                 FROM chunks c JOIN document_versions v ON v.id=c.document_version_id
                 JOIN chunk_embeddings ce ON ce.chunk_id=c.id AND ce.embedder_id=%s
                 JOIN embeddings e ON e.content_hash=ce.content_hash AND e.embedder_id=ce.embedder_id
@@ -161,18 +190,33 @@ class PostgresHybridIndex:
                 AND EXISTS (SELECT 1 FROM acl a WHERE a.document_version_id=v.id AND
                     (a.is_public OR a.principal=%s OR a.principal='*'
                      OR a.group_name=ANY(%s) OR a.group_name='*'))""",
-                                (self.embedder_id, filters.product_version, filters.product_version,
-                                 list(filters.document_ids), list(filters.document_ids),
-                                 filters.principal, list(filters.groups))).fetchall()
+                (
+                    self.embedder_id,
+                    filters.product_version,
+                    filters.product_version,
+                    list(filters.document_ids),
+                    list(filters.document_ids),
+                    filters.principal,
+                    list(filters.groups),
+                ),
+            ).fetchall()
         snapshot = InMemoryHybridIndex()
         for row in rows:
             # ACL was evaluated by SQL from the current ACL rows, not the payload.
             chunk = replace(chunk_from_payload(row["payload"]), access_policy=None)
-            snapshot.upsert([chunk], dense_vectors=[json.loads(row["embedding"])],
-                            sparse_vectors=[row["sparse_vector"]])
+            snapshot.upsert(
+                [chunk],
+                dense_vectors=[json.loads(row["embedding"])],
+                sparse_vectors=[row["sparse_vector"]],
+            )
         # Version/ACL already evaluated by SQL; retain only metadata/document filters.
-        return snapshot.search(dense_vector, sparse_vector, top_k=top_k, alpha=alpha,
-                               filters=replace(filters, product_version=None))
+        return snapshot.search(
+            dense_vector,
+            sparse_vector,
+            top_k=top_k,
+            alpha=alpha,
+            filters=replace(filters, product_version=None),
+        )
 
     def available_versions(self, filters: RetrievalFilters) -> dict[str, tuple[str, ...]]:
         where, params = self._scope_where(filters)
@@ -187,8 +231,9 @@ class PostgresHybridIndex:
             versions.setdefault(row["document_id"], []).append(row["product_version"])
         return {key: tuple(value) for key, value in versions.items()}
 
-    def dense_search(self, dense_vector: Sequence[float], *, top_k: int,
-                     filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
+    def dense_search(
+        self, dense_vector: Sequence[float], *, top_k: int, filters: RetrievalFilters
+    ) -> tuple[ScoredChunk, ...]:
         if not dense_vector:
             return ()
         vector = json.dumps([float(value) for value in dense_vector])
@@ -214,8 +259,9 @@ class PostgresHybridIndex:
             for rank, row in enumerate(rows, 1)
         )
 
-    def sparse_search(self, query_text: str, *, top_k: int,
-                      filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
+    def sparse_search(
+        self, query_text: str, *, top_k: int, filters: RetrievalFilters
+    ) -> tuple[ScoredChunk, ...]:
         with self.database.connect() as conn:
             document_stats = self._document_frequencies(conn)
             terms, source, params = self._sparse_sql(
@@ -237,9 +283,13 @@ class PostgresHybridIndex:
             for rank, row in enumerate(rows, 1)
         )
 
-    def _sparse_sql(self, query_text: str, filters: RetrievalFilters, *,
-                    document_stats: tuple[int, Mapping[str, int]] | None = None
-                    ) -> tuple[str, str, tuple[Any, ...]]:
+    def _sparse_sql(
+        self,
+        query_text: str,
+        filters: RetrievalFilters,
+        *,
+        document_stats: tuple[int, Mapping[str, int]] | None = None,
+    ) -> tuple[str, str, tuple[Any, ...]]:
         if document_stats is None:
             plain_query, identifier_query = sparse_query_texts(query_text)
         else:
@@ -294,9 +344,14 @@ class PostgresHybridIndex:
         _SPARSE_STATS_CACHE[cache_key] = stats
         return stats
 
-    def sparse_diagnostic(self, query_text: str, *, top_k: int = 3,
-                          filters: RetrievalFilters | None = None,
-                          gold_chunk_ids: Sequence[str] = ()) -> dict[str, Any]:
+    def sparse_diagnostic(
+        self,
+        query_text: str,
+        *,
+        top_k: int = 3,
+        filters: RetrievalFilters | None = None,
+        gold_chunk_ids: Sequence[str] = (),
+    ) -> dict[str, Any]:
         """Use the search path's query/predicate and return its actual parsed tsqueries."""
         filters = filters or RetrievalFilters()
         with self.database.connect() as conn:
@@ -347,33 +402,42 @@ class PostgresHybridIndex:
             "document_count": document_count,
             "dropped_terms": list(dropped_terms),
             "top_chunk_ids": [match.chunk.chunk_id for match in matches],
-            "top_matches": [{"chunk_id": match.chunk.chunk_id,
-                             "score": match.sparse_score, "rank": match.rank}
-                            for match in matches],
-            "gold_chunk_ranks": {chunk_id: ranked_gold.get(chunk_id)
-                                 for chunk_id in gold_chunk_ids},
+            "top_matches": [
+                {"chunk_id": match.chunk.chunk_id, "score": match.sparse_score, "rank": match.rank}
+                for match in matches
+            ],
+            "gold_chunk_ranks": {
+                chunk_id: ranked_gold.get(chunk_id) for chunk_id in gold_chunk_ids
+            },
         }
 
-    def expand_parents(self, matches: Sequence[ScoredChunk], *,
-                       filters: RetrievalFilters) -> tuple[ScoredChunk, ...]:
-        parent_keys = tuple(dict.fromkeys(
-            match.chunk.parent_id for match in matches if match.chunk.parent_id
-        ))
+    def expand_parents(
+        self, matches: Sequence[ScoredChunk], *, filters: RetrievalFilters
+    ) -> tuple[ScoredChunk, ...]:
+        parent_keys = tuple(
+            dict.fromkeys(match.chunk.parent_id for match in matches if match.chunk.parent_id)
+        )
         if not parent_keys:
             return tuple(matches)
         where, params = self._scope_where(filters)
+        match_keys = tuple(
+            dict.fromkeys([match.chunk.chunk_id for match in matches] + list(parent_keys))
+        )
         query = f"""SELECT c.payload FROM chunks c
             JOIN document_versions v ON v.id=c.document_version_id
             WHERE v.status='active' AND c.chunk_key=ANY(%s) AND {where}"""
         with self.database.connect() as conn:
-            rows = conn.execute(query, (list(parent_keys), *params)).fetchall()
+            rows = conn.execute(query, (list(match_keys), *params)).fetchall()
         parents = {
             chunk_from_payload(row["payload"]).chunk_id: chunk_from_payload(row["payload"])
             for row in rows
         }
+        allowed_matches = set(parents)
         expanded: list[ScoredChunk] = []
         seen: set[str] = set()
         for match in matches:
+            if match.chunk.chunk_id not in allowed_matches:
+                continue
             if match.chunk.chunk_id not in seen:
                 expanded.append(match)
                 seen.add(match.chunk.chunk_id)
@@ -386,33 +450,44 @@ class PostgresHybridIndex:
         return tuple(expanded)
 
     def external_public_chunks(
-        self, matches: Sequence[ScoredChunk], filters: RetrievalFilters,
+        self,
+        matches: Sequence[ScoredChunk],
+        filters: RetrievalFilters,
     ) -> tuple[ScoredChunk, ...]:
         """Recheck current ACL/source text immediately before the public-only provider boundary."""
         if not matches:
             return ()
         where, params = self._scope_where(filters)
         with self.database.connect() as conn:
-            rows = conn.execute(f"""SELECT c.payload FROM chunks c
+            rows = conn.execute(
+                f"""SELECT c.payload FROM chunks c
                 JOIN document_versions v ON v.id=c.document_version_id
                 WHERE v.status='active' AND c.chunk_key=ANY(%s) AND {where}
                 AND EXISTS (SELECT 1 FROM acl pub
                     WHERE pub.document_version_id=v.id AND pub.is_public)""",
-                ([m.chunk.chunk_id for m in matches], *params)).fetchall()
-        public = {chunk.chunk_id: replace(chunk, access_policy=AccessPolicy(public=True))
-                  for chunk in (chunk_from_payload(r["payload"]) for r in rows)}
-        return tuple(replace(m, chunk=public[m.chunk.chunk_id]) for m in matches
-                     if m.chunk.chunk_id in public)
+                ([m.chunk.chunk_id for m in matches], *params),
+            ).fetchall()
+        public = {
+            chunk.chunk_id: replace(chunk, access_policy=AccessPolicy(public=True))
+            for chunk in (chunk_from_payload(r["payload"]) for r in rows)
+        }
+        return tuple(
+            replace(m, chunk=public[m.chunk.chunk_id])
+            for m in matches
+            if m.chunk.chunk_id in public
+        )
 
-    def save_trace(self, trace_id: str, query: str, filters: RetrievalFilters,
-                   stages: Sequence[dict[str, Any]]) -> None:
+    def save_trace(
+        self, trace_id: str, query: str, filters: RetrievalFilters, stages: Sequence[dict[str, Any]]
+    ) -> None:
         with self.database.connect() as conn:
-            conn.execute("""INSERT INTO query_traces
+            conn.execute(
+                """INSERT INTO query_traces
                 (id, query, requester, product_version, stages)
                 VALUES (%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO UPDATE SET stages=EXCLUDED.stages""",
-                         (trace_id, query, filters.principal, filters.product_version,
-                          Jsonb(list(stages))))
+                (trace_id, query, filters.principal, filters.product_version, Jsonb(list(stages))),
+            )
 
     def _scope_where(self, filters: RetrievalFilters) -> tuple[str, list[Any]]:
         clauses = ["TRUE"]
@@ -438,6 +513,9 @@ class PostgresHybridIndex:
             acl.append("a.group_name=ANY(%s)")
             params.append(list(filters.groups))
         acl.append("a.group_name='*'")
-        clauses.append("EXISTS (SELECT 1 FROM acl a WHERE a.document_version_id=v.id AND ("
-                       + " OR ".join(acl) + "))")
+        clauses.append(
+            "EXISTS (SELECT 1 FROM acl a WHERE a.document_version_id=v.id AND ("
+            + " OR ".join(acl)
+            + "))"
+        )
         return " AND ".join(clauses), params

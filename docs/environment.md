@@ -1,6 +1,6 @@
 # Environment and provider record
 
-Last reviewed: 2026-10-28 (Phase 6 provider selection and official API documentation).
+Last reviewed: 2026-10-28 (Phase 7 security and study runner).
 
 ## Answers from the project owner
 
@@ -44,6 +44,46 @@ Official DeepSeek documentation inspected on 2026-10-28:
 
 See `results/phase6_results.json` and `docs/phase6_findings.md` for the completed
 run's measurements, human-reference alignment and limitations.
+
+## Phase 7 security and database-study verification
+
+- Runtime JWT dependency: `PyJWT>=2.8,<3`; property-test dependency:
+  `hypothesis>=6.100,<7`. Both are installed in `.venv` and declared in
+  `pyproject.toml`. HS256 secrets are validated at a minimum of 32 UTF-8 bytes;
+  the committed example uses a placeholder and real values must remain private.
+- `RAG_JWT_ALGORITHM` is restricted to `HS256`; `RAG_JWT_SECRET` configures the
+  verifier. Tokens require `sub`, `iat`, and `exp`; `groups`, `roles`, and
+  space-delimited `scope` are normalized only after signature verification.
+- Health is public. Query and stream routes require a valid bearer token and
+  derive `principal`/`groups` exclusively from verified claims. Document,
+  deletion, and job routes additionally require an `admin`, `ingest`, or
+  `ingestion` role/scope. JSON identity fields are ignored for retrieval.
+- Configurable controls include `RAG_MAX_REQUEST_BODY_BYTES`,
+  `RAG_MAX_QUERY_CHARS`, `RAG_MAX_DOCUMENT_CHARS`, `RAG_MAX_SECTION_CHARS`,
+  `RAG_MAX_SECTIONS`, `RAG_MAX_METADATA_KEYS`, `RAG_MAX_METADATA_DEPTH`,
+  `RAG_RATE_LIMIT_REQUESTS`, `RAG_RATE_LIMIT_WINDOW_SECONDS`,
+  `RAG_REQUEST_TIMEOUT_SECONDS`, `RAG_DATABASE_CONNECT_TIMEOUT_SECONDS`, and
+  `RAG_DATABASE_STATEMENT_TIMEOUT_MS`.
+- `scripts/phase7_eval.sh` makes no external API calls. It runs a deterministic
+  prompt-injection benchmark and then attempts two optional local PostgreSQL
+  studies. Study A uses an isolated schema, `ENABLE`/`FORCE ROW LEVEL SECURITY`,
+  transaction-local `app.current_principal`/`app.current_groups`, and a
+  `NOBYPASSRLS` role. Study B requires pgvector >=0.8.7, uses `ef_search=40`
+  with a <10% version/section filter, and compares HNSW `iterative_scan=off`
+  and `strict_order` against exact filtered ground truth.
+- The first Phase 7 attempt saw no listener because Docker was temporarily off.
+  After the existing PostgreSQL environment became accessible, the configured
+  `evidence_rag_eval` connection reported PostgreSQL 17.11 and pgvector 0.8.7.
+  Study A measured zero ACL leakage under forced RLS for the tested principals;
+  Study B confirmed HNSW plan use over 383/20,756 selective public rows and
+  measured recall@10 1.000 for both `off` and `strict_order` against exact ground
+  truth. The public corpus was reset by the formerly unguarded destructive
+  migration test; the study used the preserved Phase 4 snapshot plus Phase 5
+  baseline vector artifact in the same database. The destructive test is now
+  guarded and the live closeout suite ran **281 passed, 1 skipped**.
+- Reports: `results/phase7_results.json`, `results/phase7_table.md`, and
+  `docs/phase7_findings.md`. The adversarial metrics are deterministic security
+  behavior checks, not semantic model-quality judgments.
 
 ### Historical Phase 0 provisional provider (superseded)
 
