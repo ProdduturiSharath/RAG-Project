@@ -665,3 +665,43 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
   16 skipped; `ruff check .` passed; full `mypy .` passed with 0 errors across
   107 source files after typing fixes in the corpus/ingestion utility scripts.
 - Results and edits remain local for review; no commit/push or Phase 6 run.
+
+## Phase 6 generation / verification closeout — 2026-10-28
+
+- Phase 5 commit `80b494b` was pushed and merged into `main` with no-FF merge
+  `549375e`; `main` was pushed and `phase-6-generation` created from it.
+- Implemented the fixed `deepseek-flash` streaming provider at
+  `https://api.deepseek.com/chat/completions`, reading only `DEEPSEEK_API_KEY`.
+  Explicit `thinking.type=disabled`, temperature 0, 45s total attempt deadline,
+  throttling and bounded 429/5xx exponential backoff are enforced.
+- Grounded JSON prompts, verbatim citation checks, per-claim lexical support,
+  unsupported-claim stripping and dev-calibrated abstention share the serving
+  and evaluation contracts. JSON/SSE expose `claims`, `included` flags and
+  `answered_version`. Output is buffered until verification is complete.
+- Serving defaults to extractive; opt in with `RAG_GENERATION_BACKEND=deepseek-flash`.
+  Its frozen calibration is `configs/phase6_calibration.json`. Serving never reads
+  `.cache/phase6/`. PostgreSQL rechecks current public ACLs at the external boundary.
+- `bash scripts/phase6_eval.sh` completed in 264.84s with 167 successful provider
+  calls. Eight ACL-denied restricted-collection cases (5 dev, 3 test) abstained
+  locally without calls. Database/GPU artifacts were read only and preserved.
+- Rescored using the successful cache after numeric-token boundary and delivered-
+  claim metric corrections: 22.53s, 167 cache hits, **0 new provider calls**.
+  Both executions are recorded in `results/phase6_results.json`.
+- Frozen `data/eval/phase6_subset.json` contains 60 stratified test IDs, all 12
+  unanswerable/version-unavailable test rows, all question types and both existing
+  human-reviewed test rows. All 115 dev rows calibrate separate thresholds;
+  the selected threshold for both generators is 0.0. Test does not tune decisions.
+- Test correctness proxies: extractive 0.2833, extractive-verified 0.3167,
+  llm-unverified 0.6167, llm-verified 0.5167. Verification reduces LLM coverage
+  from 39 to 31 answers; its conditional lexical support is enforced by construction.
+  No wrong-version answers occurred under explicit requested-version scoping.
+- Dev selects verified DeepSeek over verified extractive under the recorded
+  quality rule (correctness proxy 0.4087 vs 0.2261). Total token-cost estimate is
+  $0.069812–$0.139625, not observed billing or a free-tier claim. The four historical
+  human-reviewed gold rows are reported separately; no new human labels were collected.
+- Deliverables: `results/phase6_results.json`, `results/phase6_table.md`,
+  `docs/phase6_findings.md`; methodology explicitly labels lexical metrics as
+  proxies rather than independent semantic correctness/faithfulness judgments.
+- Verification: full offline suite **248 passed, 16 skipped**; `ruff check .`,
+  full `mypy .` (113 source files), wrapper shell syntax and `git diff --check`
+  passed. Phase 6 changes remain uncommitted on `phase-6-generation`.

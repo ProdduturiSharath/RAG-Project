@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
-from rag_service.retrieval import Citation, ScoredChunk
+from rag_service.retrieval import Citation, RetrievalFilters, ScoredChunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,6 +14,9 @@ class GenerationRequest:
     query: str
     matches: tuple[ScoredChunk, ...]
     max_context_chars: int = 18_000
+    filters: RetrievalFilters = field(default_factory=RetrievalFilters)
+    answered_version: str | None = None
+    scope_status: str = "resolved"
 
     def __post_init__(self) -> None:
         if not self.query.strip():
@@ -24,11 +27,24 @@ class GenerationRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class Claim:
+    text: str
+    citations: tuple[Citation, ...] = ()
+    supported: bool = False
+    support_score: float = 0.0
+    reason: str = "unverified"
+    included: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class GeneratedAnswer:
     answer: str
     citations: tuple[Citation, ...] = ()
     confidence: float = 0.0
     abstained: bool = False
+    answered_version: str | None = None
+    claims: tuple[Claim, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "citations", tuple(self.citations))

@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from rag_service.application import RagApplication
 from rag_service.domain import AccessPolicy, DocumentIdentity, DocumentSection, SourceLocation
+from rag_service.generation.models import Claim
 from rag_service.retrieval import Citation, RetrievalFilters, ScoredChunk
 from rag_service.settings import Settings, load_settings
 from rag_service.storage import PostgresJobStore
@@ -19,6 +20,7 @@ from rag_service.storage import PostgresJobStore
 from .container import build_application
 from .schemas import (
     CitationResponse,
+    ClaimResponse,
     HealthResponse,
     IngestDocumentRequest,
     IngestDocumentResponse,
@@ -157,6 +159,8 @@ def create_app(
             matches=[_match_response(match) for match in prepared.matches],
             confidence=generated.confidence,
             abstained=generated.abstained,
+            answered_version=generated.answered_version,
+            claims=[_claim_response(claim) for claim in generated.claims],
             trace_id=prepared.trace_id,
             scope_status=prepared.scope_status,
             scope_versions=list(prepared.scope_versions),
@@ -180,18 +184,19 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         async def events() -> AsyncIterator[str]:
-            confidence = application.retriever.confidence(prepared.matches)
-            minimum_score = float(getattr(application.generator, "minimum_score", 0.0))
+            generated = await application.generate_prepared(prepared)
             metadata = {
                 "query": payload.query,
-                "confidence": confidence,
-                "abstained": not prepared.matches or confidence < minimum_score,
+                "confidence": generated.confidence,
+                "abstained": generated.abstained,
+                "answered_version": generated.answered_version,
+                "claims": [_claim_response(claim).model_dump() for claim in generated.claims],
                 "citations": [
-                    _citation_payload(match.citation()) for match in prepared.matches
+                    _citation_payload(citation) for citation in generated.citations
                 ],
             }
             yield _sse("metadata", metadata)
-            async for token in application.stream_answer(prepared):
+            for token in generated.answer.splitlines(keepends=True):
                 yield _sse("token", token)
             yield _sse("done", {})
 
@@ -254,6 +259,13 @@ def _filters_from_payload(payload: QueryRequest) -> RetrievalFilters:
         version_mode=payload.version_mode,
         version_selector=payload.version_selector,
     )
+
+
+def _claim_response(claim: Claim) -> ClaimResponse:
+    return ClaimResponse(text=claim.text,
+                         citations=[_citation_response(c) for c in claim.citations],
+                         supported=claim.supported, support_score=claim.support_score,
+                         reason=claim.reason, included=claim.included)
 
 
 def _citation_response(citation: Citation) -> CitationResponse:

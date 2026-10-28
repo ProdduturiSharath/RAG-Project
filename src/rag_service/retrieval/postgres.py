@@ -14,6 +14,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from rag_service.domain import AccessPolicy
 from rag_service.storage.postgres import PostgresDatabase
 from rag_service.storage.serialization import chunk_from_payload
 
@@ -383,6 +384,25 @@ class PostgresHybridIndex:
                 )
                 seen.add(parent.chunk_id)
         return tuple(expanded)
+
+    def external_public_chunks(
+        self, matches: Sequence[ScoredChunk], filters: RetrievalFilters,
+    ) -> tuple[ScoredChunk, ...]:
+        """Recheck current ACL/source text immediately before the public-only provider boundary."""
+        if not matches:
+            return ()
+        where, params = self._scope_where(filters)
+        with self.database.connect() as conn:
+            rows = conn.execute(f"""SELECT c.payload FROM chunks c
+                JOIN document_versions v ON v.id=c.document_version_id
+                WHERE v.status='active' AND c.chunk_key=ANY(%s) AND {where}
+                AND EXISTS (SELECT 1 FROM acl pub
+                    WHERE pub.document_version_id=v.id AND pub.is_public)""",
+                ([m.chunk.chunk_id for m in matches], *params)).fetchall()
+        public = {chunk.chunk_id: replace(chunk, access_policy=AccessPolicy(public=True))
+                  for chunk in (chunk_from_payload(r["payload"]) for r in rows)}
+        return tuple(replace(m, chunk=public[m.chunk.chunk_id]) for m in matches
+                     if m.chunk.chunk_id in public)
 
     def save_trace(self, trace_id: str, query: str, filters: RetrievalFilters,
                    stages: Sequence[dict[str, Any]]) -> None:

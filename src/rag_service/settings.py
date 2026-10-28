@@ -119,6 +119,10 @@ class Settings(BaseSettings):
         default=1.0,
         validation_alias=AliasChoices("RAG_JOB_POLL_SECONDS", "job_poll_seconds"),
     )
+    generation_backend: Literal["extractive", "deepseek-flash"] = Field(
+        default="extractive",
+        validation_alias=AliasChoices("RAG_GENERATION_BACKEND", "generation_backend"),
+    )
 
     @field_validator("log_level")
     @classmethod

@@ -96,6 +96,15 @@ class MatchResponse(BaseModel):
     rank: int
 
 
+class ClaimResponse(BaseModel):
+    text: str
+    citations: list[CitationResponse] = Field(default_factory=list)
+    supported: bool
+    support_score: float
+    reason: str
+    included: bool
+
+
 class QueryResponse(BaseModel):
     query: str
     answer: str
@@ -103,6 +112,8 @@ class QueryResponse(BaseModel):
     matches: list[MatchResponse] = Field(default_factory=list)
     confidence: float
     abstained: bool
+    answered_version: str | None = None
+    claims: list[ClaimResponse] = Field(default_factory=list)
     trace_id: str | None = None
     scope_status: str = "resolved"
     scope_versions: list[str] = Field(default_factory=list)
