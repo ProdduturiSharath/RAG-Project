@@ -79,8 +79,8 @@ def main() -> None:
         metadata.extend(SourceRecord.from_json(value) for value in
                         jsonl(git("show", sha + ":data/eval/source_sections.jsonl")))
     mapping = family_map(metadata)
-    history = []
-    provenance = []
+    history: list[dict[str, Any]] = []
+    provenance: list[dict[str, str]] = []
     for sha in git("log", "--format=%H", BASELINE, "--", "data/eval/candidates.jsonl",
                    "data/eval/drafts").splitlines():
         for name in git("ls-tree", "-r", "--name-only", sha, "--",

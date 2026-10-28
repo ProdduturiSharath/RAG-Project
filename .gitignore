@@ -20,9 +20,15 @@ data/processed/
 logs/
 .cache/
 results/*.tmp
+results/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*.json
+results/phase4_preflight.json
+results/phase4_selection.json
+results/phase4_smoke.json
 results/phase4.log
 results/cache/
 results_run1_backup/
+/phase5_outputs
+phase5_outputs.tar.gz
 .tools/
 .gh-config/
 

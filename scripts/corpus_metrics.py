@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Literal, cast
 
 from rag_service.benchmark.corpus import load_source_records, parse_postgresql_source
 from rag_service.domain import DocumentSection
@@ -37,7 +38,7 @@ def main() -> int:
                 section_path=record.section_path,
                 section_id=record.section_id,
                 lineage_key=record.lineage_key,
-                kind=record.kind,
+                kind=cast(Literal["text", "table", "code"], record.kind),
             )
             for record in records
         ]

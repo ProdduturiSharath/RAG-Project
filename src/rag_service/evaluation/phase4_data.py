@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -66,16 +67,16 @@ def load_gold(config: ExperimentConfig) -> list[dict[str, Any]]:
     return rows
 
 
-def policy_groups(policy: dict[str, Any], requester: str) -> tuple[str, ...]:
+def policy_groups(policy: Mapping[str, Any], requester: str) -> tuple[str, ...]:
     return next((tuple(p["groups"]) for p in policy["principals"] if p["id"] == requester), ())
 
 
-def is_restricted(chunk: Chunk, policy: dict[str, Any]) -> bool:
+def is_restricted(chunk: Chunk, policy: Mapping[str, Any]) -> bool:
     path = " / ".join(chunk.section_path).casefold()
     return any(title.casefold() in path for title in policy["restricted_section_titles"])
 
 
-def allowed(chunk: Chunk, policy: dict[str, Any], requester: str) -> bool:
+def allowed(chunk: Chunk, policy: Mapping[str, Any], requester: str) -> bool:
     return not is_restricted(chunk, policy) or AccessPolicy(
         groups=tuple(policy["restricted_allowed_groups"])
     ).allows(requester, groups=policy_groups(policy, requester))
@@ -158,13 +159,16 @@ def preflight(config: ExperimentConfig, database_url: str, results: Path) -> dic
         )
         item = {"id": row["id"], "question": row["question"], **diagnostic}
         sparse_diagnostics.append(item)
+        top_matches = [
+            (item["chunk_id"], round(item["score"], 6))
+            for item in diagnostic["top_matches"]
+        ]
         print(
             f"Sparse diagnostic {row['id']}: plain={diagnostic['plain_tsquery']!r}; "
             f"identifier={diagnostic['identifier_tsquery']!r}; "
             f"matches={diagnostic['matching_chunk_count']}; "
             f"dropped={diagnostic['dropped_terms']}; "
-            f"top3={[(item['chunk_id'], round(item['score'], 6))
-                     for item in diagnostic['top_matches']]}; "
+             f"top3={top_matches}; "
             f"gold_ranks={diagnostic['gold_chunk_ranks']}",
             flush=True,
         )

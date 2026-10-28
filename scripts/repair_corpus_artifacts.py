@@ -9,7 +9,7 @@ import hashlib
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import psycopg
 import yaml
@@ -73,10 +73,10 @@ def main() -> None:
         records = []
         inventory = []
         for version in ("pg-15", "pg-16", "pg-17"):
-            impact: dict[str, Any] = {}
+            refresh_impact: dict[str, Any] = {}
             records.extend(parse_postgresql_source(Path("data/processed/postgresql") / version,
-                                                  version, impact=impact))
-            inventory.extend(impact["new_records"])
+                                                  version, impact=refresh_impact))
+            inventory.extend(refresh_impact["new_records"])
         staged = Path("/tmp/omnirush/parser-repaired.inventory.jsonl")
         write_source_records(records, staged)
         if digest(staged) != report["source_sha256"] or len(inventory) != 607:
@@ -198,26 +198,41 @@ def main() -> None:
     chunker = DeterministicChunker(max_tokens=220, overlap_tokens=35)
     with psycopg.connect(args.database_url) as conn:
         conn.execute("SET TRANSACTION READ ONLY")
-        if conn.execute("SELECT current_database()").fetchone()[0] != "evidence_rag_eval":
+        database_row = conn.execute("SELECT current_database()").fetchone()
+        if database_row is None or database_row[0] != "evidence_rag_eval":
             raise ValueError("Dry run requires evidence_rag_eval")
         cached = {r[0] for r in conn.execute(
             "SELECT content_hash FROM embeddings WHERE embedder_id=%s", ("bge-small-en-v1.5",))}
     per_version = {}
     for version in ("pg-15", "pg-16", "pg-17"):
         records = [r for r in new if r.version == version]
-        windows = [w for r in records for w in chunker._structured_windows(r.text, r.kind)]
+        windows = [
+            w for r in records
+            for w in chunker._structured_windows(
+                r.text, cast(Literal["text", "table", "code"], r.kind)
+            )
+        ]
         hashes = {content_hash_for_chunk(text, kind) for kind, text in windows}
         changed_chunks = metadata_chunks = added_chunks = 0
         for record in records:
             prior = old_map.get((version, record.lineage_key))
-            after = chunker._structured_windows(record.text, record.kind)
-            before = chunker._structured_windows(prior.text, prior.kind) if prior else []
-            changed_chunks += sum(left != right for left, right in zip(before, after, strict=False))
-            added_chunks += max(0, len(after) - len(before))
+            after_windows = chunker._structured_windows(
+                record.text, cast(Literal["text", "table", "code"], record.kind)
+            )
+            before_windows = (
+                chunker._structured_windows(
+                    prior.text, cast(Literal["text", "table", "code"], prior.kind)
+                )
+                if prior else []
+            )
+            changed_chunks += sum(
+                left != right for left, right in zip(before_windows, after_windows, strict=False)
+            )
+            added_chunks += max(0, len(after_windows) - len(before_windows))
             if prior and (prior.title, prior.section_path, prior.caption) != (
                 record.title, record.section_path, record.caption
             ):
-                metadata_chunks += len(after)
+                metadata_chunks += len(after_windows)
         per_version[version] = {
             "documents": 1, "sections": len(records), "chunks": len(windows),
             "table_chunks": sum(kind == "table" for kind, _ in windows),

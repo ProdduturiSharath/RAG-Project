@@ -1,0 +1,178 @@
+{
+  "by_style": {
+    "behavior": {
+      "kept": 729,
+      "names_identifier": 14,
+      "unanswerable": 4
+    },
+    "by_model": {
+      "deepseek/deepseek-flash": {
+        "behavior": {
+          "kept": 288,
+          "names_identifier": 3
+        },
+        "identifier": {
+          "kept": 289,
+          "near_duplicate": 2
+        },
+        "keyword": {
+          "kept": 286,
+          "near_duplicate": 5
+        },
+        "troubleshooting": {
+          "kept": 291
+        }
+      },
+      "deepseek/deepseek-v4-pro": {
+        "behavior": {
+          "kept": 218,
+          "names_identifier": 7,
+          "unanswerable": 3
+        },
+        "identifier": {
+          "kept": 223,
+          "near_duplicate": 2,
+          "unanswerable": 3
+        },
+        "keyword": {
+          "kept": 224,
+          "near_duplicate": 2,
+          "unanswerable": 2
+        },
+        "troubleshooting": {
+          "kept": 223,
+          "unanswerable": 5
+        }
+      },
+      "velona/qwen/qwen3.7-plus": {
+        "behavior": {
+          "kept": 223,
+          "names_identifier": 4,
+          "unanswerable": 1
+        },
+        "identifier": {
+          "kept": 219,
+          "near_duplicate": 8,
+          "unanswerable": 1
+        },
+        "keyword": {
+          "kept": 225,
+          "near_duplicate": 3
+        },
+        "troubleshooting": {
+          "kept": 228
+        }
+      }
+    },
+    "identifier": {
+      "kept": 731,
+      "near_duplicate": 12,
+      "unanswerable": 4
+    },
+    "keyword": {
+      "kept": 735,
+      "near_duplicate": 10,
+      "unanswerable": 2
+    },
+    "troubleshooting": {
+      "kept": 742,
+      "unanswerable": 5
+    }
+  },
+  "generated": 2988,
+  "generators": [
+    {
+      "api_docs": "https://api-docs.deepseek.com",
+      "chat_url": "https://api.deepseek.com/v1/chat/completions",
+      "description": "DeepSeek V4 Pro 0813",
+      "free_status": "permitted",
+      "key": "DEEPSEEK_API_KEY",
+      "key_name": "DEEPSEEK_API_KEY",
+      "license": "mit",
+      "lineup_status": "locked",
+      "model": "deepseek-v4-pro",
+      "name": "deepseek",
+      "provider": "deepseek",
+      "rate_limit_url": "https://api-docs.deepseek.com/quick_start/rate_limit",
+      "terms_status": "permitted_for_this_use",
+      "terms_url": "https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
+      "trial": {
+        "distinct_openings": 25,
+        "expected_queries": 40,
+        "failures": [],
+        "median_latency_seconds": 34.305053747499755,
+        "model": "deepseek-v4-pro",
+        "opening_ratio": 0.625,
+        "passages": 10,
+        "passed": false,
+        "provider": "deepseek",
+        "truncated": false,
+        "valid_queries": 40,
+        "valid_ratio": 1.0
+      }
+    },
+    {
+      "api_docs": "https://api-docs.deepseek.com",
+      "chat_url": "https://api.deepseek.com/v1/chat/completions",
+      "description": "DeepSeek V4.1 Flash",
+      "free_status": "permitted",
+      "key": "DEEPSEEK_API_KEY",
+      "key_name": "DEEPSEEK_API_KEY",
+      "license": "mit",
+      "lineup_status": "locked",
+      "model": "deepseek-flash",
+      "name": "deepseek",
+      "provider": "deepseek",
+      "rate_limit_url": "https://api-docs.deepseek.com/quick_start/rate_limit",
+      "terms_status": "permitted_for_this_use",
+      "terms_url": "https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
+      "trial": {
+        "distinct_openings": 30,
+        "expected_queries": 40,
+        "failures": [],
+        "median_latency_seconds": 9.7252860829999,
+        "model": "deepseek-flash",
+        "opening_ratio": 0.75,
+        "passages": 10,
+        "passed": true,
+        "provider": "deepseek",
+        "truncated": false,
+        "valid_queries": 40,
+        "valid_ratio": 1.0
+      }
+    },
+    {
+      "api_docs": "https://velona.in/docs",
+      "chat_url": "https://velona.in/v1/chat/completions",
+      "description": "Qwen 3.7 Plus",
+      "free_status": "permitted",
+      "key": "VELONA_API_KEY",
+      "key_name": "VELONA_API_KEY",
+      "license": null,
+      "lineup_status": "locked",
+      "model": "qwen/qwen3.7-plus",
+      "name": "velona",
+      "provider": "velona",
+      "rate_limit_url": "https://velona.in/docs/rate-limits",
+      "terms_status": "permitted_for_this_use",
+      "terms_url": "https://velona.in/terms",
+      "trial": {
+        "distinct_openings": 29,
+        "expected_queries": 40,
+        "failures": [],
+        "median_latency_seconds": 57.11994186049992,
+        "model": "qwen/qwen3.7-plus",
+        "opening_ratio": 0.725,
+        "passages": 10,
+        "passed": false,
+        "provider": "velona",
+        "truncated": false,
+        "valid_queries": 40,
+        "valid_ratio": 1.0
+      }
+    }
+  ],
+  "kept": 2937,
+  "network_calls": 155,
+  "passages": 747
+}
