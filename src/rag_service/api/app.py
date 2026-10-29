@@ -184,6 +184,8 @@ def create_app(
                 candidate_k=candidate_k,
                 alpha=alpha,
                 filters=filters,
+                generation_mode=payload.generation_mode,
+                search_mode=payload.search_mode,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -199,6 +201,7 @@ def create_app(
             trace_id=prepared.trace_id,
             scope_status=prepared.scope_status,
             scope_versions=list(prepared.scope_versions),
+            generation_mode=prepared.generation_mode,
         )
 
     @app.post("/v1/query/stream")
@@ -216,6 +219,8 @@ def create_app(
                 candidate_k=candidate_k,
                 alpha=alpha,
                 filters=filters,
+                generation_mode=payload.generation_mode,
+                search_mode=payload.search_mode,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -228,6 +233,8 @@ def create_app(
                 "confidence": generated.confidence,
                 "abstained": generated.abstained,
                 "answered_version": generated.answered_version,
+                "trace_id": prepared.trace_id,
+                "generation_mode": prepared.generation_mode,
                 "claims": [_claim_response(claim).model_dump() for claim in generated.claims],
                 "citations": [_citation_payload(citation) for citation in generated.citations],
             }
@@ -241,6 +248,33 @@ def create_app(
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.get("/v1/traces/summary")
+    async def trace_summary(request: Request) -> dict[str, Any]:
+        _require_auth(request)
+        summary = getattr(application.retriever.index, "trace_summary", None)
+        if summary is None:
+            raise HTTPException(status_code=501, detail="trace summaries require a trace store")
+        return await asyncio.to_thread(summary)
+
+    @app.get("/v1/corpus/coverage")
+    async def corpus_coverage(request: Request) -> dict[str, Any]:
+        _require_auth(request)
+        coverage = getattr(application.retriever.index, "coverage_summary", None)
+        if coverage is None:
+            raise HTTPException(status_code=501, detail="corpus coverage requires a storage index")
+        return await asyncio.to_thread(coverage)
+
+    @app.get("/v1/traces/{trace_id}")
+    async def get_trace(request: Request, trace_id: str) -> dict[str, Any]:
+        _require_auth(request)
+        getter = getattr(application.retriever.index, "get_trace", None)
+        if getter is None:
+            raise HTTPException(status_code=501, detail="trace inspection requires a trace store")
+        trace = await asyncio.to_thread(getter, trace_id)
+        if trace is None:
+            raise HTTPException(status_code=404, detail="trace not found")
+        return trace
 
     return app
 
@@ -390,7 +424,25 @@ def run() -> None:
     uvicorn.run("rag_service.api.app:create_app", factory=True, host="127.0.0.1", port=8000)
 
 
-app = create_app()
+class _LazyApp:
+    """Defer production model/database initialization until the first request."""
+
+    def __init__(self) -> None:
+        self._app: FastAPI | None = None
+
+    def _loaded(self) -> FastAPI:
+        if self._app is None:
+            self._app = create_app()
+        return self._app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        await self._loaded()(scope, receive, send)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loaded(), name)
+
+
+app: Any = _LazyApp()
 
 
 __all__ = ["app", "create_app", "run"]

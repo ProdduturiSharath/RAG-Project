@@ -760,3 +760,48 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
 - Verification: live database suite **281 passed, 1 skipped**; `ruff check .`,
   full `mypy .` (119 source files), `git diff --check`, and the Phase 7 wrapper
   completed.
+
+## Phase 8 packaging and protected-state closeout — 2026-10-29
+
+- The recovered databases were frozen before Phase 8. A read-only canonical
+  manifest records counts, columns, primary keys, and SHA-256 hashes for every
+  table in `evidence_rag_eval`, `evidence_rag_recovery_20261028`, the preserved
+  `public_pre_recovery_20261029` schema, and the surviving Phase 4/5 schemas.
+  The before/after comparison matched every protected table exactly.
+- A logical dump was attempted before edits but could not run: the installed
+  `pg_dump` is PostgreSQL **15.19**, while the server is PostgreSQL **17.11**;
+  no compatible PostgreSQL 17 client was present. The manifest is change
+  detection only and is not claimed to be equivalent to `pg_dump`.
+- Moved the disposable database fixture to `tests/conftest.py`. It now accepts
+  only `RAG_TEST_ADMIN_DATABASE_URL`, creates a fresh `rag_test_<uuid>` database,
+  owns the generated URL/name variables, and requires exact URL/name equality
+  in every Postgres test helper. CI now passes the maintenance URL separately.
+- Added trace generation metadata, cost/latency persistence, trace inspection,
+  trace summary, corpus coverage, query generation modes, and sparse-vs-hybrid
+  search selection. The Streamlit UI is under `src/rag_service/ui/`.
+- Added the isolated `evidence_rag_demo` database and deterministic seed:
+  **2 documents, 3 versions, 7 chunks, 7 chunk links, 6 hash embeddings, and
+  4 ACL rows**. Compose uses a dedicated `evidence_rag_demo_pgdata` volume.
+  The seed refuses to overwrite an existing schema.
+- Added `scripts/phase8_eval.sh`. It created and dropped
+  `rag_test_phase8_285bedad1f3645b985cc6b6c94182ebf`, measured 24 documents / 48
+  chunks, ingestion p50/p95 **174.500/178.326 ms**, read-only query p50/p95
+  **27.367/28.967 ms**, and API cost **$0.00**. Artifacts are
+  `results/phase8_results.json`, `results/phase8_table.md`, and
+  `docs/phase8_findings.md`.
+- Safe full verification used explicit `hash-v1` and `token-overlap` adapters:
+  **288 passed**, with a fresh disposable database created and dropped. No
+  transformer weight initialization appeared in that run. An earlier default
+  suite invocation did initialize local transformer weights; it was not used as
+  the final safety result and no model encoding was run for recovery or Phase 8.
+- Ruff, mypy, targeted observability tests, shell syntax, and the protected
+  manifest comparison passed. Docker is unavailable in this environment, so
+  Compose startup and browser UI smoke testing remain host checks.
+
+### Things I am unsure about
+
+- The benchmark is a local single-process timing result, not a production
+  capacity estimate.
+- The recovered ACL rows are provenance from surviving Phase 4 artifacts, not
+  proof of the lost database's complete historical ACL state.
+- Demo hash vectors prove deterministic plumbing, not semantic embedding quality.

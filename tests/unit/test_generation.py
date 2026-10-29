@@ -2,11 +2,14 @@ import unittest
 
 from rag_service.api.container import build_application
 from rag_service.domain import DocumentSection
+from rag_service.settings import Settings
 
 
 class GenerationTests(unittest.IsolatedAsyncioTestCase):
     async def test_generator_abstains_without_matching_evidence(self) -> None:
-        application = build_application()
+        application = build_application(
+            Settings(dense_model="hash-v1", reranker_model="token-overlap")
+        )
         application.ingest(
             "manual",
             [DocumentSection(text="The device uses a blue status light when ready.")],
@@ -24,7 +27,9 @@ class GenerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer.citations, ())
 
     async def test_citation_exposes_product_version_and_section_path(self) -> None:
-        application = build_application()
+        application = build_application(
+            Settings(dense_model="hash-v1", reranker_model="token-overlap")
+        )
         application.ingest(
             "manual",
             [DocumentSection(text="Set max_wal_senders to 20.", heading="Replication", level=1)],

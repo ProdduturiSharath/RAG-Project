@@ -5,9 +5,11 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY requirements.lock ./
 COPY migrations ./migrations
+COPY configs ./configs
 COPY src ./src
 
 RUN python -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.lock
+RUN python -m pip install --no-cache-dir "streamlit==1.66.1"
 
 EXPOSE 8000
 

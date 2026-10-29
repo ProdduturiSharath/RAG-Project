@@ -1,0 +1,22 @@
+{
+  "api_cost_usd": 0.0,
+  "counts": {
+    "chunks": 48,
+    "document_versions": 24,
+    "documents": 24,
+    "embeddings": 24,
+    "sections": 48
+  },
+  "database": "rag_test_phase8_285bedad1f3645b985cc6b6c94182ebf",
+  "elapsed_seconds": 0.6397417420012061,
+  "ingestion_batches": 3,
+  "ingestion_documents": 24,
+  "ingestion_p50_ms": 174.49989000124333,
+  "ingestion_p95_ms": 178.32589899990126,
+  "query_count": 4,
+  "query_mean_ms": 26.738435999504873,
+  "query_p50_ms": 27.367433000108576,
+  "query_p95_ms": 28.96659599900886,
+  "read_only": true,
+  "vector_backend": "deterministic hash-v1, 256 dimensions"
+}

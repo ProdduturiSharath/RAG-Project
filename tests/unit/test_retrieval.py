@@ -3,11 +3,14 @@ import unittest
 from rag_service.api.container import build_application
 from rag_service.domain import AccessPolicy, DocumentSection
 from rag_service.retrieval import RetrievalFilters
+from rag_service.settings import Settings
+
+TEST_SETTINGS = Settings(dense_model="hash-v1", reranker_model="token-overlap")
 
 
 class RetrievalTests(unittest.IsolatedAsyncioTestCase):
     async def test_exact_identifier_is_retrievable(self) -> None:
-        application = build_application()
+        application = build_application(TEST_SETTINGS)
         application.ingest(
             "manual",
             [
@@ -29,7 +32,7 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer.citations[0].chunk_id, prepared.matches[0].chunk.chunk_id)
 
     async def test_document_acl_is_applied_before_ranking(self) -> None:
-        application = build_application()
+        application = build_application(TEST_SETTINGS)
         application.ingest(
             "restricted",
             [DocumentSection(text="The confidential launch date is November 15.")],
@@ -61,7 +64,7 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("restricted", {match.chunk.document_id for match in visible})
 
     async def test_acl_filtering_precedes_candidate_limit(self) -> None:
-        application = build_application()
+        application = build_application(TEST_SETTINGS)
         application.ingest(
             "restricted",
             [DocumentSection(text="The confidential launch date is November 15.")],
@@ -86,7 +89,7 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(matches[0].chunk.document_id, "public")
 
     async def test_group_acl_is_checked_for_denied_and_allowed_groups(self) -> None:
-        application = build_application()
+        application = build_application(TEST_SETTINGS)
         application.ingest(
             "operations",
             [DocumentSection(text="The operations group runbook contains the launch plan.")],

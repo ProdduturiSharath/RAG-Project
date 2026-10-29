@@ -3,11 +3,14 @@ import unittest
 from rag_service.api.container import build_application
 from rag_service.domain import DocumentSection
 from rag_service.evaluation import EvaluationCase, evaluate_retrieval
+from rag_service.settings import Settings
 
 
 class EvaluationTests(unittest.IsolatedAsyncioTestCase):
     async def test_retrieval_metrics_make_misses_visible(self) -> None:
-        application = build_application()
+        application = build_application(
+            Settings(dense_model="hash-v1", reranker_model="token-overlap")
+        )
         result = application.ingest(
             "manual",
             [DocumentSection(text="Use SKU-994X for the replacement filter.")],

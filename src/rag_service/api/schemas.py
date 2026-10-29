@@ -67,6 +67,8 @@ class QueryRequest(BaseModel):
     product_version: str | None = Field(default=None, max_length=256)
     version_mode: Literal["none", "explicit", "auto"] | None = None
     version_selector: Literal["exact", "latest", "all"] = "exact"
+    generation_mode: Literal["extractive", "verified", "unverified"] = "verified"
+    search_mode: Literal["hybrid", "dense", "sparse"] = "hybrid"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -118,6 +120,7 @@ class QueryResponse(BaseModel):
     trace_id: str | None = None
     scope_status: str = "resolved"
     scope_versions: list[str] = Field(default_factory=list)
+    generation_mode: Literal["extractive", "verified", "unverified"] = "verified"
 
 
 class HealthResponse(BaseModel):

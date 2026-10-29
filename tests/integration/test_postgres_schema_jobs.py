@@ -33,7 +33,12 @@ class PostgresSchemaAndJobTests(unittest.TestCase):
             ).fetchall()
         self.assertEqual(
             [row["version"] for row in applied_after],
-            ["001_initial", "002_revision_payloads", "003_retrieval_indexes"],
+            [
+                "001_initial",
+                "002_revision_payloads",
+                "003_retrieval_indexes",
+                "004_trace_observability",
+            ],
         )
         self.assertTrue(all(row["checksum"] for row in applied_after))
 
