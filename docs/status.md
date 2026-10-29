@@ -798,6 +798,34 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
   manifest comparison passed. Docker is unavailable in this environment, so
   Compose startup and browser UI smoke testing remain host checks.
 
+## Full application corpus rebuild — 2026-10-29
+
+- Created the isolated application database
+  `evidence_rag_full_app_5d34bd5a2530` from the full three-version corpus. The
+  protected source databases were not mutation targets.
+- Applied current application migrations only to the new target.
+- Confirmed the target baseline matched the source before vector work:
+  32,719 active chunks, 20,756 BGE-small links, and 9,083 384-dimensional
+  vectors.
+- Inventoried 11,963 missing active links and 6,065 genuinely missing unique
+  content hashes. No missing hash had a reusable vector row.
+- Encoded the 6,065 unique texts with `BAAI/bge-small-en-v1.5` on CPU using
+  the compatible configuration: 384 dimensions, normalized vectors, query
+  instruction enabled, metadata prefix disabled. Inserted 6,065 vectors and
+  11,963 links in six idempotent batches.
+- Final target coverage is complete for the active corpus: 32,719 active
+  chunks, 32,719 valid BGE-small links, and 15,148 vector records, all with
+  384 dimensions.
+- Full-corpus smoke query passed with live BGE-small CPU question encoding,
+  PostgreSQL hybrid retrieval, explicit `pg-17` filtering, five matches,
+  citations, and no abstention. DeepSeek was intentionally not called in the
+  smoke test.
+- Protected-state verification after the rebuild checked 52 tables and found
+  zero count or canonical SHA-256 mismatches.
+- Remaining runtime wiring: point the final application at the new target, set
+  BGE-small instead of the hash demo encoder, and enable DeepSeek Flash after
+  `DEEPSEEK_API_KEY` is configured locally. No phase 0–8 rebuild is required.
+
 ### Things I am unsure about
 
 - The benchmark is a local single-process timing result, not a production
