@@ -12,6 +12,8 @@ from typing import Literal
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEVELOPMENT_JWT_SECRET = "phase7-local-development-secret-32bytes!"
+
 
 class Settings(BaseSettings):
     """Runtime configuration for the API and its local adapters."""
@@ -123,8 +125,14 @@ class Settings(BaseSettings):
         default="extractive",
         validation_alias=AliasChoices("RAG_GENERATION_BACKEND", "generation_backend"),
     )
+    extractive_minimum_score: float = Field(
+        default=0.12,
+        validation_alias=AliasChoices(
+            "RAG_EXTRACTIVE_MINIMUM_SCORE", "extractive_minimum_score"
+        ),
+    )
     jwt_secret: str = Field(
-        default="phase7-local-development-secret-32bytes!",
+        default=DEVELOPMENT_JWT_SECRET,
         min_length=32,
         validation_alias=AliasChoices("RAG_JWT_SECRET", "jwt_secret"),
     )
@@ -210,8 +218,15 @@ class Settings(BaseSettings):
             raise ValueError("embedding_batch_size must be positive")
         if self.job_poll_seconds <= 0:
             raise ValueError("job_poll_seconds must be positive")
+        if not 0 <= self.extractive_minimum_score <= 1:
+            raise ValueError("extractive_minimum_score must be between zero and one")
         if len(self.jwt_secret.encode("utf-8")) < 32:
             raise ValueError("jwt_secret must be at least 32 UTF-8 bytes")
+        if (
+            self.environment.casefold() in {"production", "prod"}
+            and self.jwt_secret == DEVELOPMENT_JWT_SECRET
+        ):
+            raise ValueError("production deployments must set a unique jwt_secret")
         if self.max_request_body_bytes < 1 or self.max_query_chars < 1:
             raise ValueError("request and query limits must be positive")
         if self.max_document_chars < 1 or self.max_section_chars < 1:

@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
@@ -241,125 +240,33 @@ def _study_b() -> dict[str, Any]:
             dimension_row = conn.execute(
                 "SELECT dimensions FROM embeddings WHERE embedder_id=%s LIMIT 1", (embedder,)
             ).fetchone()
-            source_details: dict[str, Any]
-            if dimension_row and int(dimension_row["dimensions"] or 0) == 384:
-                source_details = {"mode": "public", "schema": "public", "embedder": embedder}
-                conn.execute(
-                    """
-                    CREATE TEMP TABLE phase7_ann_scope AS
-                    SELECT DISTINCT e.content_hash, e.embedding::vector(384) AS embedding,
-                           v.product_version, s.heading_path->>0 AS section_heading,
-                           true AS is_public
-                    FROM embeddings e
-                    JOIN chunk_embeddings ce
-                      ON ce.content_hash=e.content_hash AND ce.embedder_id=e.embedder_id
-                    JOIN document_versions v ON v.id=ce.document_version_id
-                    JOIN chunks c ON c.id=ce.chunk_id
-                    JOIN sections s ON s.id=c.section_id
-                    WHERE e.embedder_id=%s AND v.status='active'
-                      AND EXISTS (
-                          SELECT 1 FROM acl a
-                          WHERE a.document_version_id=v.id AND a.is_public
-                      )
-                """,
-                    (embedder,),
-                )
-            else:
-                # Docker restart can leave public tables rebuilt while the Phase
-                # 4 snapshot schema and Phase 5 vector artifact remain intact.
-                # Use those real corpus artifacts rather than inventing vectors.
-                artifact_index = ROOT / "phase5_outputs/vectors/baseline-bge-small.index.json"
-                artifact_vectors = ROOT / "phase5_outputs/vectors/baseline-bge-small.npy"
-                if not artifact_index.exists() or not artifact_vectors.exists():
-                    return {
-                        "status": "unavailable",
-                        "reason": "filtered_ann_requires_verified_384_dimension_index",
-                        "pgvector": version_text,
-                    }
-                artifact_ids = json.loads(artifact_index.read_text(encoding="utf-8"))["ids"]
-                vectors = np.load(artifact_vectors, mmap_mode="r")
-                if (
-                    vectors.ndim != 2
-                    or vectors.shape[1] != 384
-                    or len(artifact_ids) != len(vectors)
-                ):
-                    return {
-                        "status": "unavailable",
-                        "reason": "phase5_vector_artifact_shape_mismatch",
-                        "pgvector": version_text,
-                    }
-                schemas = conn.execute(
-                    """SELECT nspname FROM pg_namespace
-                    WHERE nspname LIKE 'phase4_%' AND nspname NOT LIKE '%_acl'
-                    ORDER BY nspname"""
-                ).fetchall()
-                source_schema: str | None = None
-                source_count = 0
-                for schema_row in schemas:
-                    candidate = str(schema_row["nspname"])
-                    try:
-                        count = conn.execute(
-                            sql.SQL("SELECT count(*) AS n FROM {}.chunks").format(
-                                sql.Identifier(candidate)
-                            )
-                        ).fetchone()
-                        if count and int(count["n"]) > source_count:
-                            source_schema, source_count = candidate, int(count["n"])
-                    except psycopg.Error:
-                        conn.rollback()
-                if source_schema is None:
-                    return {
-                        "status": "unavailable",
-                        "reason": "phase4_snapshot_schema_missing",
-                        "pgvector": version_text,
-                    }
-                source_details = {
-                    "mode": "phase4_snapshot_plus_phase5_artifact",
-                    "schema": source_schema,
-                    "artifact": str(artifact_vectors.relative_to(ROOT)),
+            if not dimension_row or int(dimension_row["dimensions"] or 0) != 384:
+                return {
+                    "status": "unavailable",
+                    "reason": "public_requires_verified_384_dimension_index",
+                    "pgvector": version_text,
                 }
-                records = conn.execute(
-                    sql.SQL("""
-                    SELECT c.content_hash, v.product_version,
-                           c.payload->'section_path'->>0 AS section_heading
-                    FROM {}.chunks c
-                    JOIN {}.document_versions v ON v.id=c.document_version_id
-                    WHERE v.status='active' AND c.content_hash=ANY(%s)
-                      AND EXISTS (
-                          SELECT 1 FROM {}.acl a
-                          WHERE a.document_version_id=v.id AND a.is_public
-                      )
-                    """).format(
-                        sql.Identifier(source_schema),
-                        sql.Identifier(source_schema),
-                        sql.Identifier(source_schema),
-                    ),
-                    (artifact_ids,),
-                ).fetchall()
-                vector_by_id = {
-                    str(content_hash): vectors[index]
-                    for index, content_hash in enumerate(artifact_ids)
-                }
-                conn.execute(
-                    """CREATE TEMP TABLE phase7_ann_scope (
-                    content_hash text, embedding vector(384), product_version text,
-                    section_heading text, is_public boolean)"""
-                )
-                with conn.cursor() as cursor:
-                    cursor.executemany(
-                        """INSERT INTO phase7_ann_scope
-                        (content_hash, embedding, product_version, section_heading, is_public)
-                        VALUES (%s, %s::vector(384), %s, %s, true)""",
-                        [
-                            (
-                                str(record["content_hash"]),
-                                json.dumps(vector_by_id[str(record["content_hash"])].tolist()),
-                                str(record["product_version"]),
-                                record["section_heading"],
-                            )
-                            for record in records
-                        ],
-                    )
+            source_details = {"mode": "public", "schema": "public", "embedder": embedder}
+            conn.execute(
+                """
+                CREATE TEMP TABLE phase7_ann_scope AS
+                SELECT DISTINCT e.content_hash, e.embedding::vector(384) AS embedding,
+                       v.product_version, s.heading_path->>0 AS section_heading,
+                       true AS is_public
+                FROM embeddings e
+                JOIN chunk_embeddings ce
+                  ON ce.content_hash=e.content_hash AND ce.embedder_id=e.embedder_id
+                JOIN document_versions v ON v.id=ce.document_version_id
+                JOIN chunks c ON c.id=ce.chunk_id
+                JOIN sections s ON s.id=c.section_id
+                WHERE e.embedder_id=%s AND v.status='active'
+                  AND EXISTS (
+                      SELECT 1 FROM acl a
+                      WHERE a.document_version_id=v.id AND a.is_public
+                  )
+            """,
+                (embedder,),
+            )
             conn.execute("""
                 CREATE INDEX phase7_ann_scope_hnsw
                 ON phase7_ann_scope USING hnsw (embedding vector_cosine_ops)

@@ -31,6 +31,10 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Settings(chunk_max_tokens=2, chunk_overlap_tokens=2)
 
+    def test_production_rejects_the_development_jwt_secret(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique jwt_secret"):
+            Settings(environment="production")
+
     def test_config_hash_names_result_and_round_trips_yaml(self) -> None:
         config = ExperimentConfig(
             experiment_id="unit",
