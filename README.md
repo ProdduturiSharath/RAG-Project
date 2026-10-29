@@ -82,6 +82,14 @@ bash scripts/demo_up.sh
 - API: <http://127.0.0.1:8000/docs>
 - Streamlit UI: <http://127.0.0.1:8501>
 
+If a host port is already occupied, use different host bindings without changing
+the container ports:
+
+```bash
+RAG_DEMO_POSTGRES_PORT=15432 RAG_DEMO_API_PORT=18000 RAG_DEMO_UI_PORT=18501 \
+  bash scripts/demo_up.sh
+```
+
 The demo seed is deterministic and uses `hash-v1` vectors; it does not run
 PyTorch/SentenceTransformer inference. To seed an empty demo database directly:
 

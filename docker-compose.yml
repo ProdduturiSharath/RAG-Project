@@ -17,7 +17,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:${RAG_DEMO_API_PORT:-8000}:8000"
     environment:
       RAG_ENV: ${RAG_ENV:-development}
       RAG_LOG_LEVEL: ${RAG_LOG_LEVEL:-INFO}
@@ -60,7 +60,7 @@ services:
     build: .
     command: ["streamlit", "run", "src/rag_service/ui/app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
     ports:
-      - "127.0.0.1:8501:8501"
+      - "127.0.0.1:${RAG_DEMO_UI_PORT:-8501}:8501"
     environment:
       RAG_UI_API_URL: http://api:8000
       RAG_JWT_SECRET: ${RAG_JWT_SECRET:?copy .env.example to .env and set RAG_JWT_SECRET}
