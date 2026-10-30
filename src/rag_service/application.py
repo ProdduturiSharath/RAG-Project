@@ -112,7 +112,11 @@ class RagApplication:
             scope_status=result.scope.status,
         )
         request = authorized_request(request)
-        if getattr(self.generator, "external_provider", False):
+        # Private evidence may be used by the local extractive fallback, but it
+        # must never leave the machine for an external provider.  The selected
+        # generation mode, rather than the configured default generator, decides
+        # whether the public-only boundary is required.
+        if getattr(self.generator, "external_provider", False) and generation_mode != "extractive":
             public_chunks = getattr(self.retriever.index, "external_public_chunks", None)
             if public_chunks is not None:
                 matches = await asyncio.to_thread(public_chunks, request.matches, request.filters)
@@ -221,6 +225,11 @@ class RagApplication:
                 "answered_version": answer.answered_version,
                 "scope_status": prepared.scope_status,
                 "cost_basis": answer.metadata.get("cost_basis", "local-extractive"),
+                "model": answer.metadata.get("model"),
+                "usage": answer.metadata.get("usage"),
+                "cost_estimate": answer.metadata.get("cost_estimate"),
+                "provider_latency_seconds": answer.metadata.get("latency_seconds"),
+                "attempts": answer.metadata.get("attempts"),
             },
             generation_mode=prepared.generation_mode,
             cost_usd=cost,

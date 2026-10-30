@@ -833,3 +833,47 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
 - The recovered ACL rows are provenance from surviving Phase 4 artifacts, not
   proof of the lost database's complete historical ACL state.
 - Demo hash vectors prove deterministic plumbing, not semantic embedding quality.
+
+## Final application runtime verification — 2026-10-30
+
+- Verified a non-empty local `DEEPSEEK_API_KEY` without printing its value. A
+  direct `deepseek-flash` streaming preflight returned HTTP 200 and completed
+  before final containers were started.
+- Split the demo configuration into `.env.demo` and `docker-compose.demo.yml`.
+  Updated `scripts/demo_up.sh` so demo commands always use those files and never
+  source or overwrite the final `.env`.
+- Final Compose wiring uses only `api`, `worker`, and `ui`, attaches to the
+  existing `evidence-rag_default` network, and connects to the existing
+  `evidence-rag-postgres-1` container and `evidence_rag_full_app_5d34bd5a2530`.
+  The protected PostgreSQL container and volume remained running and unchanged.
+- Host model-cache verification passed offline for
+  `BAAI/bge-small-en-v1.5` (384 dimensions, unit-normalized) and
+  `cross-encoder/ms-marco-MiniLM-L6-v2`. The cache is mounted read-only into
+  `api` and `worker`; explicit `/hub` cache variables are required by the
+  container library.
+- Final API health passed on port 18010 and Streamlit UI reachability passed on
+  port 18511. The API reported 32,719 public manual chunks.
+- Added the target-only ACL fixture
+  `postgresql-sre-operations-policy` with 3 private BGE-small vectors and
+  groups `sre`/`docs-admins`. The public manual remained 32,719 chunks across
+  three public versions; manual pre/post fingerprints matched.
+ - Re-ran all six legacy DeepSeek acceptance cases through the canonical API.
+   PG16 required one retry to obtain a supported verified answer. The final
+   traces all returned HTTP 200 with expected version/citation/support behavior.
+- ACL allow for `bob`/`sre` retrieved the private fixture locally. ACL deny for
+  `alice` returned `not found` with zero matches and zero citations; the trace
+  shows a local abstention and no provider metadata/call.
+- The canonical Dockerfile build succeeded for all three final services after
+  resilient pip settings and dependency/source layer separation. Obsolete
+  local `:patched` image tags were removed. The canonical UI AppTest rendered an
+  extractive live query with answer, version, citations, claim support, stage
+  latency, and cost ledger; AppTest exceptions/errors were zero.
+ - All DeepSeek traces now persist model, token usage, provider latency, attempt
+   count, and positive public-rate cost estimates. The six final acceptance
+   costs are `$0.00059452`, `$0.00060218`, `$0.00058102`, `$0.00053888`,
+   `$0.00064942`, and `$0.00049728`; the existing unanswerable and repeat
+   verification traces remain `$0.00060240` and `$0.00074341`.
+ - Complete token counts, cache hits/misses, trace IDs, and costs are recorded
+   in `results/final_runtime_acceptance_20261030.md`. Account billing is not
+   observable.
+- No database, protected volume, merge, or push was performed.

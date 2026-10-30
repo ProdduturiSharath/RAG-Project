@@ -2,11 +2,16 @@
 set -Eeuo pipefail
 ROOT="$(realpath -- "$(dirname -- "${BASH_SOURCE[0]}" )/..")"
 cd "$ROOT"
-if [[ -f .env ]]; then
+DEMO_ENV_FILE="${RAG_DEMO_ENV_FILE:-.env.demo}"
+DEMO_COMPOSE_FILE="${RAG_DEMO_COMPOSE_FILE:-docker-compose.demo.yml}"
+if [[ -f "$DEMO_ENV_FILE" ]]; then
     set -a
     # shellcheck disable=SC1091
-    source .env
+    source "$DEMO_ENV_FILE"
     set +a
+else
+    printf 'Demo environment file is missing: %s\n' "$DEMO_ENV_FILE" >&2
+    exit 2
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -32,13 +37,14 @@ if docker volume inspect "$RAG_DEMO_VOLUME" >/dev/null 2>&1; then
     printf 'The seed script will inspect the database and refuse non-empty data.\n'
 fi
 
-docker compose up -d postgres
-until docker compose exec -T postgres pg_isready -U "${POSTGRES_USER:-postgres}" -d "$POSTGRES_DB" >/dev/null 2>&1; do
+compose=(docker compose --env-file "$DEMO_ENV_FILE" -f "$DEMO_COMPOSE_FILE")
+"${compose[@]}" up -d postgres
+until "${compose[@]}" exec -T postgres pg_isready -U "${POSTGRES_USER:-postgres}" -d "$POSTGRES_DB" >/dev/null 2>&1; do
     sleep 1
 done
 
 demo_url="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@127.0.0.1:${RAG_DEMO_POSTGRES_PORT}/${POSTGRES_DB}"
 "$ROOT/.venv/bin/python" scripts/seed_demo.py --create --database-url "$demo_url"
-docker compose up -d api worker ui
+"${compose[@]}" up -d api worker ui
 printf 'Phase 8 demo is running: API http://127.0.0.1:%s and UI http://127.0.0.1:%s\n' \
     "$RAG_DEMO_API_PORT" "$RAG_DEMO_UI_PORT"

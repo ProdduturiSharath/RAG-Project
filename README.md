@@ -16,11 +16,15 @@ production-scale semantic quality:
   application ACL comparison.
 - Phase 7 Study B used pgvector 0.8.7 HNSW and measured **recall@10 = 1.000**
   for both `iterative_scan=off` and `strict_order` on its selective benchmark.
-- The current recovered evaluation corpus contains **32,719 active chunks**,
-  **23,946 sections**, **20,756 vector-linked chunks**, and **9,083 verified
-  384-dimensional vectors**. **11,963 active chunks do not have verified dense
-  vectors.** This is a validated reconstruction, not an exact restoration of a
-  lost database.
+- The final isolated application target contains the complete public manual
+  corpus: **32,719 active chunks** across `pg-15`, `pg-16`, and `pg-17`, with
+  **32,719 valid BGE-small vector links** and **15,148 verified 384-dimensional
+  vectors**. A separate three-chunk private ACL fixture is used only for
+  authorization tests.
+- The read-only recovered evaluation baseline remains separate: it contains
+  **32,719 active chunks**, **20,756 vector-linked chunks**, and **9,083 verified
+  vectors**. It is not the final application database and is never a mutation
+  target.
 - The isolated Phase 8 benchmark measured deterministic demo ingestion at
   **174.500 ms p50 / 178.326 ms p95** and read-only query latency at
   **27.367 ms p50 / 28.967 ms p95**, at **$0.00 API cost**.
@@ -29,7 +33,8 @@ production-scale semantic quality:
   to be an LLM.
 
 Results and methodology are recorded in `results/phase*.json`,
-`results/phase*_table.md`, and `docs/phase*_findings.md`.
+`results/phase*_table.md`, `results/final_runtime_acceptance_20261030.md`, and
+`docs/phase*_findings.md`.
 
 ## What is implemented
 
@@ -67,14 +72,44 @@ rows in `public_pre_recovery_20261029` are preserved. The recovered candidate
 does not claim the original document IDs, timestamps, ACL semantics, jobs,
 traces, or missing vector values were exactly restored.
 
+## Run the final application
+
+The final runtime uses the existing PostgreSQL 17.11 container and its
+`evidence_rag_full_app_5d34bd5a2530` database. It does not start, recreate, or
+remove a PostgreSQL service. The API and worker use CPU BGE-small, the CPU
+cross-encoder reranker, and DeepSeek Flash. `.env` must contain a non-empty
+`DEEPSEEK_API_KEY` and the verified host cache path.
+
+```bash
+docker compose --env-file .env -f docker-compose.yml up -d --build api worker ui
+```
+
+- API: <http://127.0.0.1:18010/docs>
+- Streamlit UI: <http://127.0.0.1:18511>
+- Final target database: `evidence_rag_full_app_5d34bd5a2530`
+- Host cache mounted read-only: `/home/sharath/.cache/huggingface`
+- Canonical Dockerfile build verified for `api`, `worker`, and `ui`; no patch
+  image workaround remains.
+- Streamlit AppTest verified live answer, version, citations, claim support,
+  stage latency, and cost-ledger rendering with zero UI errors.
+- The six acceptance cases were re-run through the canonical API. Every final
+  DeepSeek trace persists token usage, provider latency, attempt count, and a
+  positive USD estimate; the complete ledger is in
+  `results/final_runtime_acceptance_20261030.md`.
+
+Do not use `down -v` or `--remove-orphans` for this stack. The final Compose
+file attaches to the existing `evidence-rag_default` network, while the demo
+uses its own Compose file, project, ports, and volume.
+
 ## Run the isolated demo
 
-Docker Compose uses `evidence_rag_demo` and the dedicated
+Use `.env.demo` and `docker-compose.demo.yml`. Docker Compose uses
+`evidence_rag_demo` and the dedicated
 `evidence_rag_demo_pgdata` volume. It never seeds the recovered evaluation
 databases.
 
 ```bash
-cp .env.example .env
+cp .env.example .env.demo
 # Replace POSTGRES_PASSWORD and RAG_JWT_SECRET with local values.
 bash scripts/demo_up.sh
 ```
@@ -86,6 +121,7 @@ If a host port is already occupied, use different host bindings without changing
 the container ports:
 
 ```bash
+RAG_DEMO_ENV_FILE=.env.demo \
 RAG_DEMO_POSTGRES_PORT=15432 RAG_DEMO_API_PORT=18000 RAG_DEMO_UI_PORT=18501 \
   bash scripts/demo_up.sh
 ```
@@ -182,8 +218,9 @@ git diff --check
   17.11. No compatible PostgreSQL 17 client was available, so a logical dump
   could not be created in this environment. Canonical read-only manifests were
   used instead and are not equivalent to a logical dump.
-- Docker/Compose startup could not be smoke-tested here because Docker is not
-  installed. Run `bash scripts/demo_up.sh` on a Docker-capable host.
+- Docker/Compose startup and the final API/UI runtime were verified on the
+  Docker-capable host. The final runtime uses ports 18010/18511; the preserved
+  demo uses ports 15432/18000/18501.
 - The UI dependency is optional; install `.[ui]` or use the Docker image.
 - Rate limiting is process-local, and production key rotation/asymmetric JWT
   deployment remain outside this local phase.
