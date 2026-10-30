@@ -4,6 +4,9 @@ __pycache__
 *.py[cod]
 .pytest_cache
 .ruff_cache
+.cache
+phase5_outputs
+results/cache
 tests
 data
 .env

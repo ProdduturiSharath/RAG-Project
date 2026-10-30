@@ -102,7 +102,10 @@ def build_application(settings: Settings | None = None) -> RagApplication:
             parent_expansion=settings.parent_expansion,
         ),
     )
-    generator: AnswerGenerator = ExtractiveAnswerGenerator()
+    extractive_generator = ExtractiveAnswerGenerator(
+        minimum_score=settings.extractive_minimum_score
+    )
+    generator: AnswerGenerator = extractive_generator
     threshold = 0.0
     if settings.generation_backend == "deepseek-flash":
         calibration_path = Path(__file__).resolve().parents[3] / "configs/phase6_calibration.json"
@@ -116,6 +119,7 @@ def build_application(settings: Settings | None = None) -> RagApplication:
         max_context_chars=settings.max_context_chars,
         verify_generation=True,
         abstention_threshold=threshold,
+        extractive_generator=extractive_generator,
     )
 
 

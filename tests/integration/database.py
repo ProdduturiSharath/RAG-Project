@@ -6,13 +6,21 @@ from psycopg.conninfo import conninfo_to_dict
 
 
 def test_database_url() -> str | None:
-    test_url = os.getenv("RAG_TEST_DATABASE_URL")
-    url = test_url or os.getenv("RAG_EVAL_DATABASE_URL") or os.getenv("RAG_DATABASE_URL")
-    if test_url is not None:
-        assert url is not None
-        name = conninfo_to_dict(url).get("dbname") or ""
-        if name != os.getenv("RAG_TEST_RUN_DATABASE") or not name.startswith("rag_test_"):
-            raise RuntimeError("Run integration tests through pytest's disposable database fixture")
+    url = os.getenv("RAG_TEST_DATABASE_URL")
+    run_name = os.getenv("RAG_TEST_RUN_DATABASE")
+    if url is None and run_name is None:
+        return None
+    if url is None or run_name is None:
+        raise RuntimeError(
+            "RAG_TEST_DATABASE_URL and RAG_TEST_RUN_DATABASE must be set together "
+            "by the disposable database fixture"
+        )
+    name = str(conninfo_to_dict(url).get("dbname") or "")
+    if not name.startswith("rag_test_") or name != run_name:
+        raise RuntimeError(
+            "RAG_TEST_DATABASE_URL must point to the exact fixture-owned rag_test_* "
+            "database named by RAG_TEST_RUN_DATABASE"
+        )
     return url
 
 

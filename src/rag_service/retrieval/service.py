@@ -57,9 +57,15 @@ class HybridRetriever:
         candidate_k: int = 30,
         alpha: float = 0.55,
         filters: RetrievalFilters | None = None,
+        search_mode: str | None = None,
     ) -> tuple[ScoredChunk, ...]:
         result = await self.retrieve_detailed(
-            query, top_k=top_k, candidate_k=candidate_k, alpha=alpha, filters=filters
+            query,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            alpha=alpha,
+            filters=filters,
+            search_mode=search_mode,
         )
         self.last_result = result
         return result.matches
@@ -72,8 +78,12 @@ class HybridRetriever:
         candidate_k: int = 30,
         alpha: float = 0.55,
         filters: RetrievalFilters | None = None,
+        search_mode: str | None = None,
     ) -> RetrievalResult:
         self._validate(query, top_k, candidate_k, alpha)
+        mode = search_mode or self.config.search_mode
+        if mode not in {"hybrid", "dense", "sparse"}:
+            raise ValueError("search_mode must be hybrid, dense, or sparse")
         filters = filters or RetrievalFilters()
         trace_id = str(uuid.uuid4())
         traces: list[StageTrace] = []
@@ -89,27 +99,27 @@ class HybridRetriever:
         }))
         started = time.perf_counter()
         dense: tuple[ScoredChunk, ...] = ()
-        if self.config.search_mode != "sparse":
+        if mode != "sparse":
             dense_vector = await self._query_vector(query)
             dense = await asyncio.to_thread(
                 self._dense_search, dense_vector, candidate_k, scope.filters
             )
         traces.append(self._trace("dense", dense, started, {
-            "candidate_k": candidate_k, "enabled": self.config.search_mode != "sparse",
+            "candidate_k": candidate_k, "enabled": mode != "sparse", "search_mode": mode,
         }))
 
         started = time.perf_counter()
         sparse: tuple[ScoredChunk, ...] = ()
-        if self.config.search_mode != "dense":
+        if mode != "dense":
             sparse = await asyncio.to_thread(
                 self._sparse_search, query, candidate_k, scope.filters
             )
         traces.append(self._trace("sparse", sparse, started, {
-            "candidate_k": candidate_k, "enabled": self.config.search_mode != "dense",
+            "candidate_k": candidate_k, "enabled": mode != "dense", "search_mode": mode,
         }))
 
         started = time.perf_counter()
-        if self.config.search_mode == "hybrid":
+        if mode == "hybrid":
             fused = fuse(dense, sparse, method=self.config.fusion, alpha=alpha)[:candidate_k]
         else:
             component = "dense_score" if self.config.search_mode == "dense" else "sparse_score"

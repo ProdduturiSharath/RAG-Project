@@ -244,6 +244,70 @@ class InMemoryHybridIndex:
             "stages": list(stages),
         }
 
+    def update_trace(
+        self,
+        trace_id: str,
+        *,
+        metadata: Mapping[str, Any],
+        generation_mode: str,
+        cost_usd: float = 0.0,
+        latency_ms: float | None = None,
+    ) -> None:
+        trace = self.traces.get(trace_id)
+        if trace is None:
+            return
+        trace.update(
+            metadata=dict(metadata),
+            generation_mode=generation_mode,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
+
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
+        trace = self.traces.get(trace_id)
+        return dict(trace) if trace is not None else None
+
+    def trace_summary(self) -> dict[str, Any]:
+        traces = list(self.traces.values())
+        latencies = sorted(
+            float(item["latency_ms"])
+            for item in traces
+            if item.get("latency_ms") is not None
+        )
+        costs = sum(float(item.get("cost_usd", 0.0)) for item in traces)
+        if not latencies:
+            p50 = p95 = 0.0
+        else:
+            p50 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.5))]
+            p95 = latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
+        return {
+            "traces": len(traces),
+            "cost_usd": costs,
+            "latency_avg_ms": sum(latencies) / len(latencies) if latencies else 0.0,
+            "latency_p50_ms": p50,
+            "latency_p95_ms": p95,
+            "abstained": sum(bool(item.get("metadata", {}).get("abstained")) for item in traces),
+        }
+
+    def coverage_summary(self) -> dict[str, Any]:
+        chunks = len(self._records)
+        return {
+            "total_active_chunks": chunks,
+            "vector_linked_chunks": sum(
+                item.dense_vector is not None for item in self._records.values()
+            ),
+            "embedding_records": sum(
+                item.dense_vector is not None for item in self._records.values()
+            ),
+            "embedding_hashes": sum(
+                item.dense_vector is not None for item in self._records.values()
+            ),
+            "missing_dense_chunks": sum(
+                item.dense_vector is None for item in self._records.values()
+            ),
+            "provenance": "runtime in-memory index",
+        }
+
     @staticmethod
     def _cosine(left: Sequence[float], right: Sequence[float] | None) -> float:
         if not left or not right or len(left) != len(right):

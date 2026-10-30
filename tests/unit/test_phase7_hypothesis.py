@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +19,7 @@ from rag_service.retrieval import (
     RetrievalFilters,
 )
 from rag_service.storage import PostgresVersionedStore
+from tests.integration.database import test_database_url
 
 principals = st.lists(st.sampled_from(["alice", "bob", "carol"]), unique=True, max_size=3)
 groups = st.lists(st.sampled_from(["sre", "docs", "finance"]), unique=True, max_size=3)
@@ -51,11 +51,7 @@ def _memory_index(
 def _postgres_index(
     access_policy: AccessPolicy, version: str
 ) -> tuple[PostgresHybridIndex, tuple[float, ...], str]:
-    database_url = (
-        os.getenv("RAG_TEST_DATABASE_URL")
-        or os.getenv("RAG_EVAL_DATABASE_URL")
-        or os.getenv("RAG_DATABASE_URL")
-    )
+    database_url = test_database_url()
     if not database_url:
         pytest.skip("RAG_TEST_DATABASE_URL is not provisioned")
     document_id = "phase7-hypothesis-" + uuid4().hex
@@ -236,11 +232,7 @@ def test_revocation_and_deletion_are_immediate(
         index.delete_document("doc", version)
         deleted = index.search(vector, {}, top_k=5, alpha=1.0, filters=filters)
     else:
-        database_url = (
-            os.getenv("RAG_TEST_DATABASE_URL")
-            or os.getenv("RAG_EVAL_DATABASE_URL")
-            or os.getenv("RAG_DATABASE_URL")
-        )
+        database_url = test_database_url()
         if not database_url:
             pytest.skip("RAG_TEST_DATABASE_URL is not provisioned")
         document_id = "phase7-revoke-" + uuid4().hex

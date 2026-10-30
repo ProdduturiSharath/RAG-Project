@@ -21,6 +21,23 @@ from .verification import abstention, verify_answer
 
 ENDPOINT = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-flash"
+PRICE_SOURCE = "https://api-docs.deepseek.com/quick_start/pricing"
+
+
+def estimated_cost(usage: dict[str, Any]) -> dict[str, Any]:
+    """Estimate public DeepSeek token cost without claiming account billing."""
+    prompt = int(usage.get("prompt_tokens", 0))
+    hits = int(usage.get("prompt_cache_hit_tokens", 0))
+    misses = int(usage.get("prompt_cache_miss_tokens", prompt - hits))
+    output = int(usage.get("completion_tokens", 0))
+    upper = (hits * 0.006 + misses * 0.30 + output * 1.20) / 1_000_000
+    return {
+        "estimated_usd_upper": upper,
+        "estimated_usd_lower": upper / 2,
+        "billed_usd": None,
+        "source": PRICE_SOURCE,
+        "basis": "public peak/off-peak rates; granted balance/billing not observable",
+    }
 
 
 def deepseek_key(path: Path = Path(".env")) -> str:
@@ -206,6 +223,9 @@ class OpenAICompatibleGenerator:
                         "model": MODEL,
                         "latency_seconds": time.perf_counter() - started,
                         "attempts": attempt + 1,
+                        "cost_estimate": estimated_cost(usage),
+                        "cost_usd": estimated_cost(usage)["estimated_usd_upper"],
+                        "cost_basis": "deepseek-public-peak-estimate",
                     },
                 )
                 return (

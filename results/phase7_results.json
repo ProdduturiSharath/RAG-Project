@@ -183,47 +183,47 @@
     ]
   },
   "api_cost_usd": 0.0,
-  "elapsed_seconds": 8.535329064001417,
+  "elapsed_seconds": 8.01368383199997,
   "filtered_ann": {
-    "corpus_rows": 20756,
+    "corpus_rows": 20634,
     "embedder": "bge-small-en-v1.5",
     "exact": {
-      "p50_ms": 6.914263001817744,
-      "p95_ms": 8.664897999551613
+      "p50_ms": 15.412042999969344,
+      "p95_ms": 17.29362899982334
     },
     "ground_truth": "exact selective scan with HNSW/index scans disabled",
     "hnsw_index": "phase7_ann_scope_hnsw",
     "hnsw_index_used": true,
     "modes": {
       "off": {
-        "latency_p50_ms": 7.134288000088418,
-        "latency_p95_ms": 8.88277299964102,
+        "latency_p50_ms": 14.849988999912966,
+        "latency_p95_ms": 16.894145000151184,
         "recall_at_10": 1.0
       },
       "strict_order": {
-        "latency_p50_ms": 7.024275997537188,
-        "latency_p95_ms": 7.6996349998808,
+        "latency_p50_ms": 13.933467000015298,
+        "latency_p95_ms": 14.807095999913145,
         "recall_at_10": 1.0
       }
     },
     "pgvector": "0.8.7",
     "queries": 8,
     "query_source": "public vectors outside the selective filter",
-    "scope_rows": 383,
+    "scope_rows": 382,
     "selective_filter": {
       "product_version": "pg-17",
       "section_heading": "Functions and Operators"
     },
     "source": {
-      "artifact": "phase5_outputs/vectors/baseline-bge-small.npy",
-      "mode": "phase4_snapshot_plus_phase5_artifact",
-      "schema": "phase4_5d39ce69ff567132b141"
+      "embedder": "bge-small-en-v1.5",
+      "mode": "public",
+      "schema": "public"
     },
     "status": "measured"
   },
   "latency_helper": {
-    "p50_ms": 0.0003029999788850546,
-    "p95_ms": 0.0023190004867501557,
+    "p50_ms": 0.0007850001111364691,
+    "p95_ms": 0.003513999899951159,
     "samples": 30.0
   },
   "phase": 7,
@@ -238,8 +238,8 @@
           "sre-17"
         ],
         "application_leakage": [],
-        "application_p50_ms": 0.32563800050411373,
-        "application_p95_ms": 0.543689002370229,
+        "application_p50_ms": 0.5389789998844208,
+        "application_p95_ms": 1.2628189999759343,
         "expected_ids": [
           "alice-17",
           "public-16",
@@ -253,8 +253,8 @@
           "sre-17"
         ],
         "rls_leakage": [],
-        "rls_p50_ms": 0.21755100169684738,
-        "rls_p95_ms": 0.6132810012786649,
+        "rls_p50_ms": 0.5262520000997029,
+        "rls_p95_ms": 1.0378160000072967,
         "samples": 30
       },
       {
@@ -264,8 +264,8 @@
           "sre-17"
         ],
         "application_leakage": [],
-        "application_p50_ms": 0.2934789990831632,
-        "application_p95_ms": 0.3664979994937312,
+        "application_p50_ms": 0.5479120000018156,
+        "application_p95_ms": 0.8451630001218291,
         "expected_ids": [
           "alice-17",
           "public-16",
@@ -281,8 +281,8 @@
           "sre-17"
         ],
         "rls_leakage": [],
-        "rls_p50_ms": 0.21592000121017918,
-        "rls_p95_ms": 0.4152549990976695,
+        "rls_p50_ms": 0.4358290000254783,
+        "rls_p95_ms": 0.5701430000044638,
         "samples": 30
       },
       {
@@ -290,8 +290,8 @@
           "public-16"
         ],
         "application_leakage": [],
-        "application_p50_ms": 0.35839699921780266,
-        "application_p95_ms": 0.5624830009764992,
+        "application_p50_ms": 0.47247100019376376,
+        "application_p95_ms": 0.6189840000843105,
         "expected_ids": [
           "public-16"
         ],
@@ -301,14 +301,14 @@
           "public-16"
         ],
         "rls_leakage": [],
-        "rls_p50_ms": 0.29203499798313715,
-        "rls_p95_ms": 0.477419001981616,
+        "rls_p50_ms": 0.39266099997803394,
+        "rls_p95_ms": 0.5244330000095943,
         "samples": 30
       }
     ],
-    "role_nobypassrls": "phase7_rls_role_0c98953c82",
-    "schema": "phase7_rls_0c98953c82",
-    "setup_seconds": 0.18029697599922656,
+    "role_nobypassrls": "phase7_rls_role_28db6084d1",
+    "schema": "phase7_rls_28db6084d1",
+    "setup_seconds": 0.3263988740000059,
     "status": "measured"
   }
 }

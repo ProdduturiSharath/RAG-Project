@@ -4,10 +4,18 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY requirements.lock ./
+
+RUN sed '/^-e \.$/d' requirements.lock > /tmp/requirements.lock \
+    && python -m pip install --no-cache-dir --default-timeout=180 --retries=10 \
+        --extra-index-url https://download.pytorch.org/whl/cpu -r /tmp/requirements.lock \
+    && python -m pip install --no-cache-dir --default-timeout=180 --retries=10 \
+        "streamlit==1.66.1"
+
 COPY migrations ./migrations
+COPY configs ./configs
 COPY src ./src
 
-RUN python -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.lock
+RUN python -m pip install --no-cache-dir --no-deps -e .
 
 EXPOSE 8000
 

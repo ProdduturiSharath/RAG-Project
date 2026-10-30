@@ -489,6 +489,76 @@ class PostgresHybridIndex:
                 (trace_id, query, filters.principal, filters.product_version, Jsonb(list(stages))),
             )
 
+    def update_trace(
+        self,
+        trace_id: str,
+        *,
+        metadata: Mapping[str, Any],
+        generation_mode: str,
+        cost_usd: float = 0.0,
+        latency_ms: float | None = None,
+    ) -> None:
+        """Persist generation outcome and cost after retrieval has completed."""
+        with self.database.connect() as conn:
+            conn.execute(
+                """UPDATE query_traces
+                SET metadata=%s, generation_mode=%s, cost_usd=%s, latency_ms=%s
+                WHERE id=%s""",
+                (Jsonb(dict(metadata)), generation_mode, cost_usd, latency_ms, trace_id),
+            )
+
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT id::text AS id, query, requester, product_version, stages,
+                    metadata, generation_mode, cost_usd::float8 AS cost_usd,
+                    latency_ms, created_at::text AS created_at
+                FROM query_traces WHERE id=%s""",
+                (trace_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def trace_summary(self) -> dict[str, Any]:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT count(*)::int AS traces,
+                    coalesce(sum(cost_usd), 0)::float8 AS cost_usd,
+                    coalesce(avg(latency_ms), 0)::float8 AS latency_avg_ms,
+                    coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms), 0)::float8
+                        AS latency_p50_ms,
+                    coalesce(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::float8
+                        AS latency_p95_ms,
+                    coalesce(
+                        sum(CASE WHEN metadata->>'abstained' = 'true' THEN 1 ELSE 0 END), 0
+                    )::int AS abstained
+                FROM query_traces"""
+            ).fetchone()
+        return dict(row or {})
+
+    def coverage_summary(self) -> dict[str, Any]:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT
+                    (SELECT count(*) FROM chunks c
+                     JOIN document_versions v ON v.id=c.document_version_id
+                     WHERE v.status='active')::int AS total_active_chunks,
+                    (SELECT count(*) FROM chunk_embeddings ce
+                     JOIN document_versions v ON v.id=ce.document_version_id
+                     WHERE v.status='active' AND ce.embedder_id=%s)::int AS vector_linked_chunks,
+                    (SELECT count(*) FROM embeddings
+                     WHERE embedder_id=%s)::int AS embedding_records,
+                    (SELECT count(DISTINCT content_hash) FROM embeddings WHERE embedder_id=%s)::int
+                        AS embedding_hashes""",
+                (self.embedder_id, self.embedder_id, self.embedder_id),
+            ).fetchone()
+        result = dict(row or {})
+        result["missing_dense_chunks"] = (
+            int(result.get("total_active_chunks", 0))
+            - int(result.get("vector_linked_chunks", 0))
+        )
+        result["provenance"] = "PostgreSQL active public corpus"
+        return result
+
     def _scope_where(self, filters: RetrievalFilters) -> tuple[str, list[Any]]:
         clauses = ["TRUE"]
         params: list[Any] = []
