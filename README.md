@@ -50,6 +50,15 @@ Results and methodology are recorded in `results/phase*.json`,
   and per-claim support state.
 - JSON and SSE query APIs, trace inspection/summary endpoints, a deterministic
   isolated demo seed, and a Streamlit findings-first UI.
+- A redesigned findings-first query workspace: access-profile selection,
+  connection settings, corpus coverage metrics, version and answer-mode
+  controls, hybrid-versus-keyword comparison, answer-first results, claim
+  support, expandable supporting evidence, and diagnostics with stage latency,
+  trace identity, and cost accounting.
+- Verified answer markers now carry stable claim IDs from model output through
+  the API and UI. Citation-marker validation rejects unclaimed answer text,
+  while quote verification can use authorized surrounding chunk context for
+  identifiers that are omitted from a short verbatim quote.
 - Phase 8 demo packaging with a dedicated database/volume, deterministic hash
   vectors, extractive generation by default, and no hidden provider call.
 
@@ -94,8 +103,9 @@ docker compose --env-file .env -f docker-compose.yml up -d --build api worker ui
   stage latency, and cost-ledger rendering with zero UI errors.
 - The six acceptance cases were re-run through the canonical API. Every final
   DeepSeek trace persists token usage, provider latency, attempt count, and a
-  positive USD estimate; the complete ledger is in
-  `results/final_runtime_acceptance_20261030.md`.
+  positive USD estimate. The verified costs are `$0.00059452`, `$0.00060218`,
+  `$0.00058102`, `$0.00053888`, `$0.00064942`, and `$0.00049728`; the complete
+  ledger is in `results/final_runtime_acceptance_20261030.md`.
 
 Do not use `down -v` or `--remove-orphans` for this stack. The final Compose
 file attaches to the existing `evidence-rag_default` network, while the demo
@@ -135,6 +145,27 @@ PYTHONPATH=src .venv/bin/python scripts/seed_demo.py --create \
 ```
 
 The seed refuses to overwrite an existing schema.
+
+## Redesigned query workspace
+
+The final Streamlit screen is organized around the user's audit path:
+
+1. **Sidebar context:** choose `public reader`, `operations reader`, or `admin`,
+   review the API connection settings, and see how hybrid retrieval and verified
+   generation use access-controlled evidence.
+2. **Corpus at a glance:** inspect active chunk count, dense-vector coverage,
+   unique embeddings, and recorded query spend before asking a question.
+3. **Ask the corpus:** enter a question, select `auto`/`pg-15`/`pg-16`/`pg-17`,
+   choose `verified`, `extractive`, or `unverified`, and optionally compare
+   hybrid retrieval with sparse keyword search.
+4. **Answer first:** read the answer with inline citation markers, then expand
+   supporting passages, claim-level support, and the persisted retrieval trace.
+
+The verified path preserves the separation between a readable answer and its
+atomic audit claims. Each claim has a stable ID, every answer marker must map to
+one supported claim, and every citation retains its document, version, section,
+and verbatim excerpt. Extractive answers remain local and cost `$0.00`; verified
+answers expose the provider cost estimate and latency in the trace ledger.
 
 ## API example
 

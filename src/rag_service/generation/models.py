@@ -34,6 +34,7 @@ class Claim:
     support_score: float = 0.0
     reason: str = "unverified"
     included: bool = True
+    claim_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

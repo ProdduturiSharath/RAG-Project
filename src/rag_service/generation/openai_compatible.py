@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -64,11 +65,18 @@ def parse_answer(text: str, metadata: dict[str, Any] | None = None) -> Generated
     ):
         raise ValueError("missing version/claims")
     claims = []
-    for raw in value["claims"]:
+    claim_ids: set[str] = set()
+    for index, raw in enumerate(value["claims"], start=1):
         if not isinstance(raw, dict) or not isinstance(raw.get("text"), str):
             raise ValueError("invalid claim")
         if not isinstance(raw.get("citations"), list):
             raise ValueError("invalid claim citations")
+        claim_id = raw.get("id", str(index))
+        if not isinstance(claim_id, str) or not re.fullmatch(r"\d+", claim_id):
+            raise ValueError("invalid claim id")
+        if claim_id in claim_ids:
+            raise ValueError("duplicate claim id")
+        claim_ids.add(claim_id)
         citations = []
         for cite in raw["citations"]:
             if not isinstance(cite, dict) or not all(
@@ -88,7 +96,7 @@ def parse_answer(text: str, metadata: dict[str, Any] | None = None) -> Generated
                     excerpt=cite["quote"],
                 )
             )
-        claims.append(Claim(raw["text"], tuple(citations)))
+        claims.append(Claim(raw["text"], tuple(citations), claim_id=claim_id))
     return GeneratedAnswer(
         value["answer"],
         tuple(dict.fromkeys(c for claim in claims for c in claim.citations)),

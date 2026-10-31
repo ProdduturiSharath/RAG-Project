@@ -346,6 +346,7 @@ def _filters_from_payload(
 
 def _claim_response(claim: Claim) -> ClaimResponse:
     return ClaimResponse(
+        claim_id=claim.claim_id,
         text=claim.text,
         citations=[_citation_response(c) for c in claim.citations],
         supported=claim.supported,
