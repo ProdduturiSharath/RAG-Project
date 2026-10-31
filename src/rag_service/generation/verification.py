@@ -49,6 +49,43 @@ def quote_valid(citation: Citation, request: GenerationRequest) -> bool:
     )
 
 
+def citation_context(citation: Citation, request: GenerationRequest) -> str:
+    """Return authorized chunk context for a valid quote without trusting the model text."""
+    for match in authorized_request(request).matches:
+        chunk = match.chunk
+        if (
+            citation.chunk_id == chunk.chunk_id
+            and citation.document_id == chunk.document_id
+            and citation.version == chunk.version
+            and citation.section_path == chunk.section_path
+            and citation.excerpt in chunk.text
+        ):
+            return chunk.text
+    return ""
+
+
+def lexical_support_with_context(text: str, quote: str, context: str) -> float:
+    """Score the quote first, using nearby context only for omitted identifiers.
+
+    Polarity is evaluated against the quote rather than the whole chunk so an
+    unrelated ``not`` elsewhere in a long manual section cannot invalidate a
+    supported claim.
+    """
+    direct = lexical_support(text, quote)
+    if direct > 0:
+        return direct
+    terms, quoted = words(text), words(quote)
+    source = words(context)
+    if not terms or not source:
+        return 0.0
+    required = {term for term in terms if "_" in term or re.search(r"\d", term)}
+    if not required <= source:
+        return 0.0
+    if bool(terms & NEGATIONS) != bool(quoted & NEGATIONS):
+        return 0.0
+    return len(terms & source) / len(terms)
+
+
 def abstention(
     *,
     claims: tuple[Claim, ...] = (),
@@ -76,9 +113,11 @@ def annotate(answer: GeneratedAnswer, request: GenerationRequest) -> GeneratedAn
     if answer.abstained or answer.answer.strip().casefold() == "not found":
         return abstention(metadata=answer.metadata)
     claims = []
-    for claim in decompose(answer):
+    for index, claim in enumerate(decompose(answer), start=1):
         valid = tuple(c for c in claim.citations if quote_valid(c, request))
-        score = lexical_support(claim.text, " ".join(c.excerpt for c in valid))
+        quotes = " ".join(citation.excerpt for citation in valid)
+        context = " ".join(citation_context(citation, request) for citation in valid)
+        score = lexical_support_with_context(claim.text, quotes, context)
         supported = (
             bool(valid)
             and len(valid) == len(claim.citations)
@@ -91,6 +130,7 @@ def annotate(answer: GeneratedAnswer, request: GenerationRequest) -> GeneratedAn
                 supported=supported,
                 support_score=score,
                 reason="lexical_support" if supported else "unsupported_or_bad_quote",
+                claim_id=claim.claim_id or str(index),
             )
         )
     return replace(answer, claims=tuple(claims))
@@ -127,11 +167,47 @@ def verify_answer(
         version = next(iter(versions))
     if not version or version not in versions:
         return abstention(claims=marked.claims, reason="wrong_version", metadata=answer.metadata)
-    # Do not let uncatalogued free-form answer text bypass the claim verifier.
-    rendered = " ".join(claim.text for claim in marked.claims if claim.included)
     original = answer.answer.removeprefix("Based on the indexed evidence: ")
-    if " ".join(rendered.split()) != " ".join(original.split()):
-        return abstention(claims=marked.claims, reason="unclaimed_text", metadata=answer.metadata)
+    markers = tuple(re.findall(r"(?<!\w)\[(\d+)\](?!\w)", original))
+    claim_ids = {claim.claim_id for claim in marked.claims}
+    if markers:
+        marker_ids = set(markers)
+        if not marker_ids <= claim_ids or marker_ids != claim_ids:
+            return abstention(
+                claims=marked.claims,
+                reason="invalid_citation_markers",
+                metadata=answer.metadata,
+            )
+        if any(
+            any(citation.version != version for citation in claim.citations)
+            for claim in marked.claims
+            if claim.claim_id in marker_ids
+        ):
+            return abstention(
+                claims=marked.claims,
+                reason="wrong_version",
+                metadata=answer.metadata,
+            )
+        if any(
+            not claim.supported
+            for claim in marked.claims
+            if claim.claim_id in marker_ids
+        ):
+            return abstention(
+                claims=marked.claims,
+                reason="unsupported_cited_claim",
+                metadata=answer.metadata,
+            )
+    else:
+        # Keep old evaluation artifacts readable while requiring the new serving
+        # contract to carry explicit answer-to-claim markers.
+        rendered = " ".join(claim.text for claim in marked.claims if claim.included)
+        if " ".join(rendered.split()) != " ".join(original.split()):
+            return abstention(
+                claims=marked.claims,
+                reason="missing_citation_markers",
+                metadata=answer.metadata,
+            )
     kept = tuple(
         c
         for c in marked.claims
@@ -144,7 +220,7 @@ def verify_answer(
     citations = tuple(dict.fromkeys(cite for claim in kept for cite in claim.citations))
     return replace(
         marked,
-        answer=" ".join(c.text for c in kept),
+        answer=answer.answer if markers else " ".join(c.text for c in kept),
         claims=tuple(replace(c, included=c in kept) for c in marked.claims),
         citations=citations,
         answered_version=version,

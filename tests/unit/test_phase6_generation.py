@@ -53,11 +53,12 @@ def answer() -> GeneratedAnswer:
 def response_json() -> dict[str, Any]:
     cite = answer().citations[0]
     return {
-        "answer": answer().answer,
+        "answer": "PostgreSQL uses a default of 8 workers for max_workers [1].",
         "answered_version": "pg-16",
         "claims": [
             {
-                "text": answer().answer,
+                "id": "1",
+                "text": "The max_workers default is 8.",
                 "citations": [
                     {
                         "chunk_id": cite.chunk_id,
@@ -170,6 +171,46 @@ def test_claim_stripping_numeric_polarity_and_unclaimed_text() -> None:
     assert verify_answer(replace(good, answered_version="pg-17"), request()).abstained
     assert verify_answer(good, request(), threshold=1).answer == "not found"
     assert evidence_confidence(replace(request(), query="missing_identifier default?")) == 0
+
+
+def test_natural_answer_preserves_readable_text_with_verified_inline_citation() -> None:
+    cite = answer().citations[0]
+    natural = GeneratedAnswer(
+        "PostgreSQL uses a default of 8 workers for max_workers [1].",
+        (cite,),
+        answered_version="pg-16",
+        claims=(Claim("The max_workers default is 8.", (cite,), claim_id="1"),),
+    )
+    result = verify_answer(natural, request())
+    assert not result.abstained
+    assert result.answer == natural.answer
+    assert result.claims[0].supported and result.claims[0].included
+
+
+def test_natural_answer_without_valid_markers_abstains() -> None:
+    cite = answer().citations[0]
+    natural = GeneratedAnswer(
+        "PostgreSQL uses a default of 8 workers for max_workers.",
+        (cite,),
+        answered_version="pg-16",
+        claims=(Claim("The max_workers default is 8.", (cite,), claim_id="1"),),
+    )
+    result = verify_answer(natural, request())
+    assert result.abstained
+    assert result.metadata["abstention_reason"] == "missing_citation_markers"
+
+
+def test_natural_answer_with_unknown_marker_abstains() -> None:
+    cite = answer().citations[0]
+    natural = GeneratedAnswer(
+        "PostgreSQL uses a default of 8 workers for max_workers [2].",
+        (cite,),
+        answered_version="pg-16",
+        claims=(Claim("The max_workers default is 8.", (cite,), claim_id="1"),),
+    )
+    result = verify_answer(natural, request())
+    assert result.abstained
+    assert result.metadata["abstention_reason"] == "invalid_citation_markers"
 
 
 def test_unsupported_claims_and_wrong_quotes_abstain() -> None:

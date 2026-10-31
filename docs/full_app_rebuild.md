@@ -157,7 +157,28 @@ successful trace used in the acceptance table.
 - The canonical Docker image build succeeded from `Dockerfile` with resilient
   pip settings. Obsolete local `:patched` image tags were removed after the
   canonical containers started. No database or protected volume was involved.
-- No commit, merge, or push has been performed for this runtime work.
+- No database or protected volume was changed by the runtime verification. The
+  repository closeout is recorded in Git history after the verified application
+  and documentation changes.
+
+### Redesigned findings-first UI and verification fixes — 2026-10-31
+
+- `src/rag_service/ui/app.py` now presents a clear audit path: access profile and
+  connection settings in the sidebar; corpus/vector coverage and query spend in
+  the masthead; version, answer mode, and sparse comparison controls in the ask
+  panel; then answer, claims, citations, and diagnostics in that order.
+- `src/rag_service/ui/styles.css` supplies the light Signal Desk visual system:
+  restrained ink/accent colors, accessible focus states, responsive layout,
+  compact metrics, readable evidence cards, claim-status rows, and a scroll-safe
+  diagnostics table.
+- Claim IDs are preserved from provider JSON through `Claim`, `ClaimResponse`,
+  the evaluation cache, and the UI. Verified answers must mark every factual
+  clause, use only returned claim IDs, and retain supported claims. Quote support
+  checks the exact quote first and uses only the authorized matching chunk as
+  surrounding context for omitted identifiers.
+- The six legacy acceptance traces were checked again through the live API. All
+  six have positive `cost_usd`, non-empty token usage, provider latency, and one
+  attempt; no query was rerun because none had a zero-cost or incomplete ledger.
 
 ## Decision rule
 

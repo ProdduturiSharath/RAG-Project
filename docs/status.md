@@ -868,12 +868,42 @@ owner_written rows. The Phase 4 closeout host evaluation completed on
   local `:patched` image tags were removed. The canonical UI AppTest rendered an
   extractive live query with answer, version, citations, claim support, stage
   latency, and cost ledger; AppTest exceptions/errors were zero.
- - All DeepSeek traces now persist model, token usage, provider latency, attempt
-   count, and positive public-rate cost estimates. The six final acceptance
-   costs are `$0.00059452`, `$0.00060218`, `$0.00058102`, `$0.00053888`,
-   `$0.00064942`, and `$0.00049728`; the existing unanswerable and repeat
-   verification traces remain `$0.00060240` and `$0.00074341`.
- - Complete token counts, cache hits/misses, trace IDs, and costs are recorded
-   in `results/final_runtime_acceptance_20261030.md`. Account billing is not
-   observable.
-- No database, protected volume, merge, or push was performed.
+- All DeepSeek traces now persist model, token usage, provider latency, attempt
+  count, and positive public-rate cost estimates. The six final acceptance
+  costs are `$0.00059452`, `$0.00060218`, `$0.00058102`, `$0.00053888`,
+  `$0.00064942`, and `$0.00049728`; the existing unanswerable and repeat
+  verification traces remain `$0.00060240` and `$0.00074341`.
+- Complete token counts, cache hits/misses, trace IDs, and costs are recorded
+  in `results/final_runtime_acceptance_20261030.md`. Account billing is not
+  observable.
+- No database or protected volume was changed by the runtime verification. The
+  repository closeout is recorded separately in Git history after the verified
+  application and documentation changes.
+
+## Phase 8 UI redesign and repository closeout — 2026-10-31
+
+- Reworked `src/rag_service/ui/app.py` and added the matching
+  `src/rag_service/ui/styles.css` into a findings-first query workspace. The
+  sidebar now exposes access profile, connection settings, and a short workflow
+  explanation. The main area presents corpus coverage, vector coverage, unique
+  embeddings, recorded spend, version and answer-mode controls, and an optional
+  sparse-versus-hybrid comparison.
+- Results now read in the order a reviewer needs: answer, version/confidence/
+  match/citation metadata, claim support, supporting excerpts, and diagnostics.
+  Diagnostics show stage order, elapsed time, candidate counts, trace identity,
+  persisted cost, and accounting basis.
+- Fixed the verified-answer contract. Generated claims retain numeric IDs from
+  parsing through API serialization and UI rendering; answer markers must cover
+  exactly the returned claim IDs; unclaimed answer text is rejected; and quote
+  support may use the authorized source chunk for omitted identifiers while
+  evaluating polarity against the verbatim quote.
+- Live final-runtime audit passed: API health returned 32,719 indexed chunks,
+  the UI returned HTTP 200, and all six legacy acceptance traces returned HTTP
+  200 with token usage, provider latency, one attempt, and positive costs. The
+  six costs were `$0.00059452`, `$0.00060218`, `$0.00058102`, `$0.00053888`,
+  `$0.00064942`, and `$0.00049728`; no legacy trace had `cost_usd = 0`.
+- The canonical final API, worker, UI, and PostgreSQL services remained running
+  during the audit. The disposable-test safety boundary remains unchanged:
+  tests own a uniquely named `rag_test_<uuid>` database and must remove it.
+- Final application and documentation checks are recorded with the repository
+  closeout; internal production-only artifacts remain local and ignored.

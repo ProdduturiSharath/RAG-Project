@@ -92,6 +92,7 @@ class EvaluationCache:
             "answered_version": answer.answered_version,
             "claims": [
                 {
+                    "id": c.claim_id,
                     "text": c.text,
                     "citations": [
                         {

@@ -39,3 +39,25 @@ __agent__/
 .idea/
 .vscode/
 *.swp
+
+# Local video, social-production, and visual-review artifacts. These remain
+# available on disk but must never enter the application repository.
+BRAG*/
+brag*/
+HALLMARK*/
+hallmark*/
+**/.hyperframes/
+**/.thumbnails/
+**/.waveform-cache/
+**/encoded-frames/
+**/screenshots/
+**/screen-recordings/
+**/recordings/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.ogg
+*.flac

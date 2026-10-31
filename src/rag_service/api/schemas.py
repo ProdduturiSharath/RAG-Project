@@ -100,6 +100,7 @@ class MatchResponse(BaseModel):
 
 
 class ClaimResponse(BaseModel):
+    claim_id: str = ""
     text: str
     citations: list[CitationResponse] = Field(default_factory=list)
     supported: bool
